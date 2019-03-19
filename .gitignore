@@ -1,0 +1,10 @@
+**/__pycache__/
+.vscode/
+checkpoint/
+data/
+log/
+sample/
+samples/
+layers.py
+main.py
+train_lapsrn.py
