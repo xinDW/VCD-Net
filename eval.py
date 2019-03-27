@@ -43,7 +43,7 @@ def evaluate(epoch, batch_size=1):
     #checkpoint_dir = "checkpoint/"
 
     checkpoint_dir = config.TRAIN.ckpt_dir
-    lf_size = config.VALID.lf2d_path
+    lf_size = config.VALID.lf2d_size
     valid_lr_img_path = config.VALID.lf2d_path
     save_dir = config.VALID.saving_path
     tl.files.exists_or_mkdir(save_dir)
@@ -52,7 +52,7 @@ def evaluate(epoch, batch_size=1):
     valid_lf_extras = read_valid_images(valid_lr_img_path)
     
     t_image = tf.placeholder('float32', [batch_size, int(np.ceil(lf_size[0]/n_num)) , int(np.ceil(lf_size[1]/n_num)), n_num ** 2])
-    net = UNet(t_image, config.PSF.n_slices, is_train=False, reuse=False, name='unet') 
+    net = UNet(t_image, config.PSF.n_slices, lf_size, is_train=True, reuse=False, name='unet') 
   
     ckpt_found = False
 

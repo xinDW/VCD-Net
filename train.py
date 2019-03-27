@@ -55,7 +55,7 @@ def train(begin_epoch):
     vars_tag = 'LFRNet'
 
     with tf.device('/gpu:{}'.format(config.TRAIN.device)):
-        net = UNet(t_lf_extra, n_slices, is_train=True, name=vars_tag)
+        net = UNet(t_lf_extra, n_slices, img_size, is_train=True, name=vars_tag)
         
     g_vars = tl.layers.get_variables_with_name(vars_tag, train_only=True, printable=True)
 
@@ -88,7 +88,7 @@ def train(begin_epoch):
         return begin
         
     if (begin_epoch != 0):
-      if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'LFRNet_{}_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
+      if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
         raise Exception('falied to load % s' % 'net_epoch{}.npz'.format(begin_epoch))
     else:
       __find_available_ckpt(n_epoch)

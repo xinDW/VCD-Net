@@ -11,8 +11,8 @@ __all__ = [
     'UNet'
     ]
 
-img_size = config.img_size * np.array(config.size_factor)
-img_height, img_width = img_size
+#img_size = config.img_size * np.array(config.size_factor)
+#img_height, img_width = img_size
 
 w_init = tf.random_normal_initializer(stddev=0.02)
 b_init = None
@@ -34,7 +34,6 @@ def deconv2d(layer, out_channels, filter_size=3, stride=2, out_size=None, act=tf
     Parames:
         shape - shape of filter : [height, width, out_channels, in_channels]
         out_size : height and width of the outputs 
-        output_shape - shape of outputs
     """
     batch, h, w, in_channels = layer.outputs.get_shape().as_list()   
     filter_shape = (filter_size, filter_size, int(out_channels), int(in_channels))
@@ -127,11 +126,11 @@ def LapSRN(lf_extra, n_slices,  name='lapsrn'):
         return sr_2x, sr_4x, sr_8x
 
 
-def UNet(lf_extra, n_slices, is_train=False, reuse=False, name='unet'):
+def UNet(lf_extra, n_slices, img_size, is_train=True, reuse=False, name='unet'):
     '''
     # number of interpolations before output sizes reach config.img_size
     n_interp = 1; 
-    while h * (2 ** n_interp) < img_height:
+    while h * (2 ** n_interp) < img_size[0]:
         n_interp += 1;
     '''    
     n_interp = 4
@@ -152,7 +151,7 @@ def UNet(lf_extra, n_slices, is_train=False, reuse=False, name='unet'):
             
         n = conv2d(n, n_filter=channels_interp, filter_size=3, act=act, name='interp/conv_final') # 176*176
         n = batch_norm(n, is_train=is_train, name='interp/bn_final')
-        #n = UpSampling2dLayer(n, size=(img_height, img_width), is_scale=False, name = 'interp/upsampling_final')
+        #n = UpSampling2dLayer(n, size=(img_size[0], img_size[1]), is_scale=False, name = 'interp/upsampling_final')
         
         pyramid_channels = [128, 256, 512, 512, 512] # output channels number of each conv layer in the encoder
         encoder_layers = []
@@ -190,8 +189,8 @@ def UNet(lf_extra, n_slices, is_train=False, reuse=False, name='unet'):
                 n = batch_norm(n, is_train=is_train, name='bn%d' % (nl - idx + 1))
                 #n = DropoutLayer(n, keep=0.5, is_fix=True, is_train=is_train, name='dropout1')
 
-            if n.outputs.shape[1] != img_height:
-                n = UpSampling2dLayer(n, size=(img_height, img_width), is_scale=False, name = 'resize_final')
+            if n.outputs.shape[1] != img_size[0]:
+                n = UpSampling2dLayer(n, size=img_size, is_scale=False, name = 'resize_final')
            
             n.outputs = tf.tanh(n.outputs)
             #n = conv2d(n, n_filter=n_slices, filter_size=3, act=tf.tanh, name='out')  
