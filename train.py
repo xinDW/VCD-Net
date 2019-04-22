@@ -56,7 +56,8 @@ def train(begin_epoch):
 
     with tf.device('/gpu:{}'.format(config.TRAIN.device)):
         net = UNet(t_lf_extra, n_slices, img_size, is_train=True, name=vars_tag)
-        
+
+    net.print_params(False)   
     g_vars = tl.layers.get_variables_with_name(vars_tag, train_only=True, printable=True)
 
     #====================
@@ -109,7 +110,7 @@ def train(begin_epoch):
         HR_batch, LF_batch, cursor, epoch = training_dataset.iter()
 
         epoch += begin_epoch
-        if epoch != 0 and (epoch % decay_every == 0):
+        if epoch != 0 and (epoch % decay_every == 0) and cursor == batch_size:
             new_lr_decay = lr_decay ** (epoch // decay_every)
             sess.run(tf.assign(lr_v, lr_init * new_lr_decay))
             print('\nlearning rate updated : %f\n' % (lr_init * new_lr_decay))
@@ -125,17 +126,18 @@ def train(begin_epoch):
             npz_file_name = checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, epoch)
             tl.files.save_npz(net.all_params, name=npz_file_name, sess=sess)
 
-            out = sess.run(net.outputs, {t_lf_extra : test_lf_extra})
-         
-            write3d(out, save_dir+'test_epoch{}.tif'.format(epoch))
-        
-
+            for idx in range(0, len(test_lf_extra), batch_size):
+                if idx + batch_size <= len(test_lf_extra):
+                    test_lr_batch = test_lf_extra[idx : idx + batch_size]
+                    #test_hr_batch = test_target3d[idx : idx + batch_size]
+                    out = sess.run(net.outputs, {t_lf_extra : test_lr_batch})
+                    write3d(out, save_dir+'test_epoch{}_{}.tif'.format(epoch, idx))
     
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--ckpt', type=int, default=0, help='')
+    parser.add_argument('-c', '--ckpt', type=int, default=0, help='')
     
     args = parser.parse_args()
     train(args.ckpt)
