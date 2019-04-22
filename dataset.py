@@ -23,6 +23,7 @@ class Dataset:
         self.n_slices = n_slices
         self.n_num = n_num
         self.multi_scale = multi_scale
+        self.test_img_num = 8
 
     def _load_dataset(self):
         def _load_imgs(path, fn, regx='.*.tif', printable=False, **kwargs):
@@ -105,15 +106,16 @@ class Dataset:
         self.batch_size = batch_size
         self.n_epochs = n_epochs
 
-        self.cursor = batch_size
+        self.cursor = self.test_img_num
         self.epoch = 0
 
         print('HR dataset : %s\nLF dataset: %s\n' % (str(self.training_data_hr3d.shape), str(self.training_data_lf2d.shape)))
-        print('batch size : %d \n%d batches available\n' % (self.batch_size, (self.training_pair_num - batch_size) // batch_size))
-        return self.training_pair_num
+        #print('batch size : %d \n%d batches available\n' % (self.batch_size, (self.training_pair_num - batch_size) // batch_size))
+        return self.training_pair_num - self.test_img_num
 
     def for_test(self):
-        return self.training_data_hr3d[0 : self.batch_size], self.training_data_lf2d[0 : self.batch_size]
+        n = self.test_img_num
+        return self.training_data_hr3d[0 : n], self.training_data_lf2d[0 : n]
 
     def hasNext(self):
         return True if self.epoch < self.n_epochs else False
@@ -124,9 +126,9 @@ class Dataset:
         '''
         
         if self.epoch < self.n_epochs - 1:
-            if self.cursor + self.batch_size >= self.training_pair_num:
+            if self.cursor + self.batch_size > self.training_pair_num:
                 self.epoch += 1
-                self.cursor = self.batch_size
+                self.cursor = self.test_img_num
 
             idx = self.cursor
             end = idx + self.batch_size
@@ -138,9 +140,9 @@ class Dataset:
                 hr_pyramid.append(self.hr_s2[idx : end])
                 hr_pyramid.append(self.hr_s3[idx : end])
             else:
-                 hr_pyramid = self.training_data_hr3d[idx:end]
+                hr_pyramid = self.training_data_hr3d[idx:end]
 
-            return hr_pyramid, self.training_data_lf2d[idx : end], idx, self.epoch
+            return hr_pyramid, self.training_data_lf2d[idx : end], idx - self.test_img_num, self.epoch
                 
         else:
             return None, None, self.cursor, self.epoch
