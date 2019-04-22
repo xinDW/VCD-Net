@@ -139,7 +139,7 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
 def do_nothing(x):
     return x
     
-def write3d_(x, path):
+def _write3d(x, path):
     """
     x : [depth, height, width, channels]
     """
@@ -172,7 +172,7 @@ def write3d(x, path):
     
     batch = x_re.shape[0]
     if batch == 1:
-        _write3d(x_re[0], path, scale_pixel_value) 
+        _write3d(x_re[0], path) 
     else:  
         fragments = path.split('.')
         new_path = ''
@@ -180,7 +180,7 @@ def write3d(x, path):
             new_path = new_path + fragments[i]
         for index, image in enumerate(x_re):
             #print(image.shape)
-            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1], scale_pixel_value) 
+            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1]) 
 
 def load_psf(path, n_num=11, psf_size=155, n_slices=16):
     '''
