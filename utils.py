@@ -155,11 +155,6 @@ def write3d(x, path):
     x : [batch, depth, height, width, channels] or [batch, height, width, channels>3]
     """
     
-    fragments = path.split('.')
-    new_path = ''
-    for i in range(len(fragments) - 1):
-        new_path = new_path + fragments[i]
-    
     #print(x.shape)
     dims = len(x.shape)
     
@@ -175,10 +170,17 @@ def write3d(x, path):
     else:
         raise Exception('unsupported dims : %s' % str(x.shape))
     
-    for index, image in enumerate(x_re):
-        #print(image.shape)
-        #write3d_(image, new_path + '_' + str(index) + '.' + fragments[-1])
-        write3d_(image, '{}_{:0>3}.{}'.format(new_path, index, fragments[-1]))
+    batch = x_re.shape[0]
+    if batch == 1:
+        _write3d(x_re[0], path, scale_pixel_value) 
+    else:  
+        fragments = path.split('.')
+        new_path = ''
+        for i in range(len(fragments) - 1):
+            new_path = new_path + fragments[i]
+        for index, image in enumerate(x_re):
+            #print(image.shape)
+            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1], scale_pixel_value) 
 
 def load_psf(path, n_num=11, psf_size=155, n_slices=16):
     '''
