@@ -121,8 +121,8 @@ def train(begin_epoch):
         print("Epoch:[%d/%d] iter:[%d/%d] times: %4.3fs, loss:%.6f" % (epoch, n_epoch, cursor, dataset_size, time.time() - step_time, error_ln))
         summary_writer.add_summary(batch_summary, epoch * (dataset_size // batch_size - 1) + cursor / batch_size)
 
-        #if (epoch !=0) and (epoch%ckpt_saving_interval == 0) and (cursor == batch_size):
-        if (epoch%ckpt_saving_interval == 0) and (cursor == 0):   
+        if (epoch !=0) and (epoch%ckpt_saving_interval == 0) and (cursor == 0):
+        #if (epoch%ckpt_saving_interval == 0) and (cursor == 0):   
             npz_file_name = checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, epoch)
             tl.files.save_npz(net.all_params, name=npz_file_name, sess=sess)
 

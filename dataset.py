@@ -9,7 +9,7 @@ from scipy.misc import imresize
 # [!] require scipy < 1.3.0 to run imresize 
 #==========================================
 class Dataset:
-    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, multi_scale=False):
+    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, test_num=8, multi_scale=False):
         '''
         Params:
             n_slices : depth of the 3d target images (the reconstructions)
@@ -23,7 +23,7 @@ class Dataset:
         self.n_slices = n_slices
         self.n_num = n_num
         self.multi_scale = multi_scale
-        self.test_img_num = 8
+        self.test_img_num = test_num
 
     def _load_dataset(self):
         def _load_imgs(path, fn, regx='.*.tif', printable=False, **kwargs):
@@ -124,11 +124,11 @@ class Dataset:
         '''
         return the next batch of the training data
         '''
-        
+        nt = self.test_img_num
         if self.epoch < self.n_epochs - 1:
-            if self.cursor + self.batch_size > self.training_pair_num:
+            if self.cursor + self.batch_size > self.training_pair_num :
                 self.epoch += 1
-                self.cursor = self.test_img_num
+                self.cursor = nt
 
             idx = self.cursor
             end = idx + self.batch_size
@@ -142,7 +142,6 @@ class Dataset:
             else:
                 hr_pyramid = self.training_data_hr3d[idx:end]
 
-            return hr_pyramid, self.training_data_lf2d[idx : end], idx - self.test_img_num, self.epoch
+            return hr_pyramid, self.training_data_lf2d[idx : end], idx - nt, self.epoch
                 
-        else:
-            return None, None, self.cursor, self.epoch
+        raise Exception('epoch index out of bounds:%d/%d' %(self.epoch, self.n_epochs))
