@@ -6,6 +6,7 @@ import time
 
 from config import *
 from utils import *
+from utils import write3d_for_amira_read
 from model import UNet
 
 def read_valid_images(path):
@@ -52,7 +53,7 @@ def evaluate(epoch, batch_size=1):
     valid_lf_extras = read_valid_images(valid_lr_img_path)
     
     t_image = tf.placeholder('float32', [batch_size, int(np.ceil(lf_size[0]/n_num)) , int(np.ceil(lf_size[1]/n_num)), n_num ** 2])
-    net = UNet(t_image, config.PSF.n_slices, lf_size, is_train=True, reuse=False, name='unet') 
+    net = UNet(t_image, config.PSF.n_slices, lf_size, is_train=False, reuse=False, name='unet') 
   
     ckpt_found = False
 
@@ -73,7 +74,8 @@ def evaluate(epoch, batch_size=1):
         for idx in range(0,len(valid_lf_extras), batch_size):
             
             recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
-            write3d(recon, save_dir+'net_%s_%06d_epoch%d.tif' % (label, idx, epoch))
+            write3d_for_amira_read(recon, save_dir+'net_epoch%d_%s_%06d.tif' % (epoch, label, idx))
+            # write3d(recon, save_dir+'net_epoch%d_%s_%06d.tif' % (epoch, label, idx))
             #write3d(out, save_dir+'/epoch{}_{:0>4}.tif'.format(epoch, idx//batch_size))
             print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
 

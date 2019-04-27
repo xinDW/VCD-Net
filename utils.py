@@ -139,7 +139,7 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
 def do_nothing(x):
     return x
     
-def _write3d(x, path):
+def write3d_(x, path):
     """
     x : [depth, height, width, channels]
     """
@@ -154,6 +154,11 @@ def write3d(x, path):
     """
     x : [batch, depth, height, width, channels] or [batch, height, width, channels>3]
     """
+    
+    fragments = path.split('.')
+    new_path = ''
+    for i in range(len(fragments) - 1):
+        new_path = new_path + fragments[i]
     
     #print(x.shape)
     dims = len(x.shape)
@@ -170,17 +175,44 @@ def write3d(x, path):
     else:
         raise Exception('unsupported dims : %s' % str(x.shape))
     
-    batch = x_re.shape[0]
-    if batch == 1:
-        _write3d(x_re[0], path) 
-    else:  
-        fragments = path.split('.')
-        new_path = ''
-        for i in range(len(fragments) - 1):
-            new_path = new_path + fragments[i]
-        for index, image in enumerate(x_re):
-            #print(image.shape)
-            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1]) 
+    for index, image in enumerate(x_re):
+        #print(image.shape)
+        #write3d_(image, new_path + '_' + str(index) + '.' + fragments[-1])
+        write3d_(image, '{}_{:0>3}.{}'.format(new_path, index, fragments[-1]))
+
+def write3d_for_amira_read(x, path):
+    """
+    remove channel number for the inconvenience in amira sequence reading 
+    """
+    """
+    x : [batch, depth, height, width, channels] or [batch, height, width, channels>3]
+    """
+    
+    fragments = path.split('.')
+    new_path = ''
+    for i in range(len(fragments) - 1):
+        new_path = new_path + fragments[i]
+    
+    #print(x.shape)
+    dims = len(x.shape)
+    
+    if dims == 4:
+        batch, height, width, n_channels = x.shape
+        x_re = np.zeros([batch, n_channels, height, width, 1])
+        for d in range(n_channels):
+            slice = x[:,:,:,d]
+            x_re[:,d,:,:,:] = slice[:,:,:,np.newaxis]
+            
+    elif dims == 5:
+        x_re = x
+    else:
+        raise Exception('unsupported dims : %s' % str(x.shape))
+    
+    for index, image in enumerate(x_re):
+        #print(image.shape)
+        #write3d_(image, new_path + '_' + str(index) + '.' + fragments[-1])
+        if index == 0:
+            write3d_(image, '{}.{}'.format(new_path, fragments[-1]))
 
 def load_psf(path, n_num=11, psf_size=155, n_slices=16):
     '''
@@ -189,7 +221,7 @@ def load_psf(path, n_num=11, psf_size=155, n_slices=16):
     print('loading psf...')
     file_list = sorted(tl.files.load_file_list(path=path, regx='.*.tif', printable=False))
     if len(file_list) != n_num ** 2:
-        raise Exception('psf files number must be euqal to Nnum^2');
+        raise Exception('psf files number must be euqal to Nnum^2')
         
     psf5d = np.zeros([n_num, n_num, n_slices, psf_size, psf_size])
     for i in range(n_num):
