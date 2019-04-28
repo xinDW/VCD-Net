@@ -74,7 +74,7 @@ def evaluate(epoch, batch_size=1):
         for idx in range(0,len(valid_lf_extras), batch_size):
             
             recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
-            write3d_for_amira_read(recon, save_dir+'net_epoch%d_%s_%06d.tif' % (epoch, label, idx))
+            write3d_for_amira_read(recon, save_dir+'net_%06d.tif' % (idx))  #simplify the name in order for amira to read in sequence
             # write3d(recon, save_dir+'net_epoch%d_%s_%06d.tif' % (epoch, label, idx))
             #write3d(out, save_dir+'/epoch{}_{:0>4}.tif'.format(epoch, idx//batch_size))
             print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
