@@ -34,7 +34,7 @@ def read_valid_images(path):
     print('read %d from %s' % (len(img_set), path)) 
     img_set = np.asarray(img_set)
     print(img_set.shape)
-    _, height, width, _ = img_set.shape.as_list()
+    _, height, width, _ = img_set.shape
     
     return img_set, height, width
 
@@ -94,7 +94,7 @@ def evaluate(epoch, batch_size=1):
     t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
     with tf.device('/cpu:0'):
     #with tf.device('/gpu:0'):
-        net = UNet(t_image, config.PSF.n_slices, lf_size, is_train=True, reuse=False, name='unet') 
+        net = UNet(t_image, config.PSF.n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet') 
   
     ckpt_found = False
 
