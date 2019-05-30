@@ -1,7 +1,5 @@
 import numpy as np
-import scipy
 import imageio
-import SimpleITK as sitk
 import tensorlayer as tl
 
 from tensorlayer.prepro import imresize
@@ -47,7 +45,8 @@ def get_and_rearrange3d(filename, path):
     return rearrange3d_fn(image)
     
 def get_img2d_fn(filename, path):
-    image = scipy.misc.imread(path + filename).astype(np.float)
+  
+    image = imageio.imread(path + filename).astype(np.float)
     if image.ndim == 2:
         image = image[:,:, np.newaxis]
     #print(image.shape)
@@ -141,14 +140,15 @@ def do_nothing(x):
     
 def _write3d(x, path):
     """
-    x : [depth, height, width, channels]
+    x : [depth, height, width, channels=1]
     """
     x = x + 1.  #[0, 2]
     x = x * 65535. / 2.
     x = x.astype(np.uint16)
-    stack = sitk.GetImageFromArray(x)
+    #stack = sitk.GetImageFromArray(x)
     #stack = sitk.Cast(stack, sitk.sitkUInt16)
-    sitk.WriteImage(stack, path)
+    #sitk.WriteImage(stack, path)
+    imageio.volwrite(path, x[..., 0])
         
 def write3d(x, path):
     """
