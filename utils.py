@@ -1,8 +1,9 @@
 import numpy as np
 import imageio
+import PIL.Image as pilimg
 import tensorlayer as tl
 
-from tensorlayer.prepro import imresize
+
 
 __all__ = [
     'get_img3d_fn',
@@ -60,7 +61,7 @@ def get_lf_extra(filename, path, n_num=11):
     return extra
     
 def resize_normalize_fn(x, size):
-    x = imresize(x, size, interp='bicubic', mode=None)
+    x = resize_fn(x, size) 
     x = normalize_fn(x) 
     return x
 
@@ -70,7 +71,12 @@ def normalize_fn(x):
     return x
     
 def resize_fn(x, size):
-    x = imresize(x, size, interp='bicubic', mode=None)
+    '''
+    Param:
+        -size: [height, width]
+    '''
+    x = np.array(pilimg.fromarray(x).resize(size=(size[1], size[0]), resample=pilimg.BICUBIC))
+    
     return x
     
 def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
