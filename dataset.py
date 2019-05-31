@@ -3,13 +3,10 @@ import numpy as np
 import os
 
 from utils import *
-from scipy.misc import imresize
+import PIL.Image as pilImg
 
-#==========================================
-# [!] require scipy < 1.3.0 to run imresize 
-#==========================================
 class Dataset:
-    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, test_num=8, multi_scale=False):
+    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, test_num=4, multi_scale=False):
         '''
         Params:
             n_slices : depth of the 3d target images (the reconstructions)
@@ -60,7 +57,7 @@ class Dataset:
             img_re = np.zeros(new_size)
             
             for d in range(0, depth):
-                img_re[:,:,d] = imresize(img3d[:,:,d], size, interp='nearest')
+                img_re[:,:,d] = np.array(pilImg.fromarray(img3d[:,:,d]).resize((size[1], size[0]), resample=pilImg.BICUBIC))
             return img_re
 
         '''
