@@ -122,7 +122,7 @@ class Dataset:
         return the next batch of the training data
         '''
         nt = self.test_img_num
-        if self.epoch < self.n_epochs - 1:
+        if self.epoch < self.n_epochs:
             if self.cursor + self.batch_size > self.training_pair_num :
                 self.epoch += 1
                 self.cursor = nt
