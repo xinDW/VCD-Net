@@ -77,7 +77,6 @@ def evaluate(epoch, batch_size=1, use_cpu=False):
                 _eval_recursively(child_path)
 
     '''
-    #checkpoint_dir = "checkpoint/bead_simu_resolution_test/"
 
     checkpoint_dir = config.TRAIN.ckpt_dir
     valid_lr_img_path = config.VALID.lf2d_path
@@ -131,8 +130,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--ckpt', type=int, default=0)
     parser.add_argument('-b', '--batch', type=int, default=1)
-    parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
-                        action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
+    # parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
+    #                     action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
 
     parser.add_argument("--cpu", help="use CPU instead of GPU for inference",
                         action="store_true") 
@@ -142,5 +141,5 @@ if __name__ == '__main__':
     batch_size = args.batch
     use_cpu = args.cpu
 
-    evaluate(ckpt, batch_size)
+    evaluate(ckpt, batch_size=batch_size, use_cpu=use_cpu)
     

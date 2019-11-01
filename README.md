@@ -55,8 +55,9 @@ python eval.py [options]
 options:
 
 * `-c <ckpt_num>`    Epoch number of the checkpint file 
+
 * `-b <batch_size>`  Batch size when infering, default is 1
-* `-r`               Recursively inference all the tiff images found in the `valid_lr_path` and its sub-folders
+
 *  `--cpu`           Use cpu instead of gpu for inference. 
 
 The results will be saved at `example_data/valid/VCD/`
