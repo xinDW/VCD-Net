@@ -14,7 +14,8 @@ __all__ = [
 #img_size = config.img_size * np.array(config.size_factor)
 #img_height, img_width = img_size
 
-w_init = tf.random_normal_initializer(stddev=0.02)
+#w_init = tf.random_normal_initializer(stddev=0.02)
+w_init = tf.glorot_uniform_initializer
 b_init = None
 g_init = tf.random_normal_initializer(1., 0.02)
 
@@ -142,16 +143,17 @@ def UNet(lf_extra, n_slices, img_size, is_train=True, reuse=False, name='unet'):
     with tf.variable_scope(name, reuse=reuse):
         n = InputLayer(lf_extra, 'lf_extra')
         n = conv2d(n, n_filter=channels_interp, filter_size=7, name='conv1')
-        ## Up-scale input 
-        for i in range(n_interp):
-            channels_interp = channels_interp / 2
-            n = SubpixelConv2d(n, scale=2, name='interp/subpixel%d' % i)
-            n = conv2d(n, n_filter=channels_interp, filter_size=3, name='interp/conv%d' % i)
-            #n = batch_norm(n, act=tf.nn.relu, is_train=is_train, name='interp/bn%d' % i)
-            
-        n = conv2d(n, n_filter=channels_interp, filter_size=3, act=act, name='interp/conv_final') # 176*176
-        n = batch_norm(n, is_train=is_train, name='interp/bn_final')
-        #n = UpSampling2dLayer(n, size=(img_size[0], img_size[1]), is_scale=False, name = 'interp/upsampling_final')
+
+        ## Up-scale input
+        with tf.variable_scope('interp'): 
+            for i in range(n_interp):
+                channels_interp = channels_interp / 2
+                n = SubpixelConv2d(n, scale=2, name='interp/subpixel%d' % i)
+                #n = deconv2d(n, out_channels=channels_interp, name='deconv%d' % (i))
+                n = conv2d(n, n_filter=channels_interp, filter_size=3, name='conv%d' % i)
+                
+            n = conv2d(n, n_filter=channels_interp, filter_size=3, act=act, name='conv_final') # 176*176
+            n = batch_norm(n, is_train=is_train, name='bn_final')
         
         pyramid_channels = [128, 256, 512, 512, 512] # output channels number of each conv layer in the encoder
         encoder_layers = []

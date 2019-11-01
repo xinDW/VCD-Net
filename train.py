@@ -80,17 +80,17 @@ def train(begin_epoch):
        
     def __find_available_ckpt(end):
         begin = end
-        while not os.path.exists(checkpoint_dir+'/{}_epoch{}.npz'.format(label, begin)):
+        while not os.path.exists(checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin)):
             begin -= 10
             if begin < 0:
                 return 0
         print('\n\ninit ckpt found at epoch %d\n\n' % begin)        
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_epoch{}.npz'.format(label, begin), network=net) 
+        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin), network=net) 
         return begin
         
     if (begin_epoch != 0):
       if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
-        raise Exception('falied to load % s' % 'net_epoch{}.npz'.format(begin_epoch))
+        raise Exception('falied to load % s' % '_lfrnet_epoch{}.npz'.format(begin_epoch))
     else:
       __find_available_ckpt(n_epoch)
       

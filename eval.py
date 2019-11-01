@@ -80,13 +80,11 @@ def evaluate(epoch, batch_size=1, use_cpu=False):
     #checkpoint_dir = "checkpoint/bead_simu_resolution_test/"
 
     checkpoint_dir = config.TRAIN.ckpt_dir
-    lf_size = config.VALID.lf2d_size
     valid_lr_img_path = config.VALID.lf2d_path
     save_dir = config.VALID.saving_path
     tl.files.exists_or_mkdir(save_dir)
     
     n_num = config.PSF.Nnum
-    devices_num = config.TRAIN.device_num
 
     
     valid_lf_extras, height, width = read_valid_images(valid_lr_img_path)
@@ -119,7 +117,7 @@ def evaluate(epoch, batch_size=1, use_cpu=False):
 
             recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
             print("time elapsed : %4.4fs " % (time.time() - start_time))
-            
+
             write3d(recon, save_dir+'net_%s_%06d_epoch%d.tif' % (config.label, idx, epoch))
             #write3d(out, save_dir+'/epoch{}_{:0>4}.tif'.format(epoch, idx//batch_size))
             print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
