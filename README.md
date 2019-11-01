@@ -7,6 +7,7 @@ Tensorflow implementation of training and using VCDNet for high-efficiency light
 ```
 pip install -r requirement.txt
 ```
+VCDNet requires an old-version Tensorlayer(contained in this repository) to run.
 
 ## Usage
 
