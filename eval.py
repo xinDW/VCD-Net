@@ -8,41 +8,104 @@ from config import config
 from utils import *
 from model import UNet
 
+def __raise(info):
+    raise Exception(info)
+
 def read_valid_images(path):
+    """return images in shape [n_images, height=img_size/n_num, width=img_size/n_num, channels=n_num**2]
     """
-    Params:
-        - 
-    return images in shape [n_images, height=img_size/n_num, width=img_size/n_num, channels=n_num**2]
-    """
-    img_set = []
+
+    def __cast(im, dtype=np.float32):
+        return im if im.dtype is np.float32 else im.astype(np.float32, casting='unsafe')
+
     img_list = sorted(tl.files.load_file_list(path=path, regx='.*.tif', printable=False))
-            
-    for img_file in img_list:
-        print(path + img_file)
-        img = get_lf_extra(img_file, path) 
 
-        if (img.dtype != np.float32):
-            img = img.astype(np.float32, casting='unsafe')
-            
-        print(img.shape)
+    img_set  = [__cast(get_lf_extra(img_file, path)) for img_file in img_list]
 
-        img_set.append(img)
-    
-    if (len(img_set) == 0):
-        raise Exception("none of the images have been loaded")
+    len(img_set) != 0 or __raise("none of the images have been loaded")
     
     print('read %d from %s' % (len(img_set), path)) 
     img_set = np.asarray(img_set)
-    print(img_set.shape)
     _, height, width, _ = img_set.shape
     
     return img_set, height, width
 
-def __raise(info):
-    raise Exception(info)
 
-def evaluate(epoch, batch_size=1, use_cpu=False):
-    '''
+def infer(epoch, batch_size=1, use_cpu=False):
+    """ Infer the 3-D images from the 2-D LF images using the trained VCD-Net
+
+    Params:
+        -epoch     : int, the epoch number of the checkpoint file to be loaded
+        -batch_size: int, batch size of the VCD-Net  
+        -use_cpu   : bool, whether to use cpu for inference. If false, gpu will be used.
+    """
+    
+
+    checkpoint_dir    = config.TRAIN.ckpt_dir
+    valid_lr_img_path = config.VALID.lf2d_path
+    save_dir          = config.VALID.saving_path
+    n_num             = config.PSF.Nnum
+
+    tl.files.exists_or_mkdir(save_dir)
+    
+    valid_lf_extras, height, width = read_valid_images(valid_lr_img_path)
+    
+    t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
+
+    device_str = '/gpu:0' if not use_cpu else '/cpu:0'
+    with tf.device(device_str):
+        net = UNet(t_image, config.PSF.n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet') 
+  
+    # ckpt_found = False
+    # for file in os.listdir(checkpoint_dir):
+    #     if '.npz' in file and str(epoch) in file:
+    #         ckpt_file = file
+    #         ckpt_found = True
+    #         break
+
+    # ckpt_found or __raise('no such checkpoint file')
+
+    ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(epoch) in filename) ] 
+    len(ckpt_file) > 0 or __raise('no such checkpoint file')
+
+    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
+        tl.layers.initialize_global_variables(sess)
+        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/' + ckpt_file[0], network=net)
+        
+        for idx in range(0,len(valid_lf_extras), batch_size):
+            start_time = time.time()  
+
+            recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
+            print("time elapsed : %4.4fs " % (time.time() - start_time))
+
+            write3d(recon, save_dir+'net_%s_epoch%d_%06d.tif' % (config.label, epoch, idx))
+            print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
+
+          
+    
+ 
+if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-c', '--ckpt', type=int, default=0)
+    parser.add_argument('-b', '--batch', type=int, default=1)
+    # parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
+    #                     action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
+
+    parser.add_argument("--cpu", help="use CPU instead of GPU for inference",
+                        action="store_true") 
+    
+    args = parser.parse_args()
+    ckpt = args.ckpt
+    batch_size = args.batch
+    use_cpu = args.cpu
+
+    infer(ckpt, batch_size=batch_size, use_cpu=use_cpu)
+    
+
+
+'''
     def _eval_images_in_folder_root(folder, check_empty=False, sess=None):  
         valid_img_list = sorted(tl.files.load_file_list(path=folder, regx='.*.tif', printable=False))
         valid_lf2d_imgs = read_all_imgs(valid_img_list, path=folder, type='2d', n_threads=batch_size, check_empty=check_empty)
@@ -77,69 +140,3 @@ def evaluate(epoch, batch_size=1, use_cpu=False):
                 _eval_recursively(child_path)
 
     '''
-
-    checkpoint_dir = config.TRAIN.ckpt_dir
-    valid_lr_img_path = config.VALID.lf2d_path
-    save_dir = config.VALID.saving_path
-    tl.files.exists_or_mkdir(save_dir)
-    
-    n_num = config.PSF.Nnum
-
-    
-    valid_lf_extras, height, width = read_valid_images(valid_lr_img_path)
-    
-    #t_image = tf.placeholder('float32', [batch_size, int(np.ceil(lf_size[0]/n_num)) , int(np.ceil(lf_size[1]/n_num)), n_num ** 2])
-    t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
-
-    device_str = '/gpu:0' if not use_cpu else '/cpu:0'
-
-    with tf.device(device_str):
-        net = UNet(t_image, config.PSF.n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet') 
-  
-    ckpt_found = False
-    filelist = os.listdir(checkpoint_dir)
-    for file in filelist:
-        if '.npz' in file and str(epoch) in file:
-        #if '.npz' in file and str(epoch) and(config.label) in file:
-            ckpt_file = file
-            ckpt_found = True
-            break
-
-    ckpt_found or __raise('no such checkpoint file')
-          
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
-        tl.layers.initialize_global_variables(sess)
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/' + ckpt_file, network=net)
-        
-        for idx in range(0,len(valid_lf_extras), batch_size):
-            start_time = time.time()  
-
-            recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
-            print("time elapsed : %4.4fs " % (time.time() - start_time))
-
-            write3d(recon, save_dir+'net_%s_%06d_epoch%d.tif' % (config.label, idx, epoch))
-            #write3d(out, save_dir+'/epoch{}_{:0>4}.tif'.format(epoch, idx//batch_size))
-            print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
-
-          
-    
- 
-if __name__ == '__main__':
-    import argparse
-    
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--ckpt', type=int, default=0)
-    parser.add_argument('-b', '--batch', type=int, default=1)
-    # parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
-    #                     action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
-
-    parser.add_argument("--cpu", help="use CPU instead of GPU for inference",
-                        action="store_true") 
-    
-    args = parser.parse_args()
-    ckpt = args.ckpt
-    batch_size = args.batch
-    use_cpu = args.cpu
-
-    evaluate(ckpt, batch_size=batch_size, use_cpu=use_cpu)
-    

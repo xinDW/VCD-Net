@@ -24,13 +24,10 @@ def get_img3d_fn(filename, path):
     image = imageio.volread(path + filename) # [depth, height, width]
     image = image[..., np.newaxis] # [depth, height, width, channels]
             
-    #print(image.shape)
-    image =  normalize_fn(image)
-    return image
+    return normalize_fn(image)
     
 def rearrange3d_fn(image):
-    """
-    re-arrange image of shape[depth, height, width] into shape[height, width, depth]
+    """ re-arrange image of shape[depth, height, width] into shape[height, width, depth]
     """
     
     image = np.squeeze(image) # remove channels dimension
@@ -51,8 +48,7 @@ def get_img2d_fn(filename, path):
     if image.ndim == 2:
         image = image[:,:, np.newaxis]
     #print(image.shape)
-    image =  normalize_fn(image)
-    return image
+    return normalize_fn(image)
 
 def get_lf_extra(filename, path, n_num=11):
     image = get_img2d_fn(filename, path)
@@ -151,9 +147,7 @@ def _write3d(x, path):
     x = x + 1.  #[0, 2]
     x = x * 65535. / 2.
     x = x.astype(np.uint16)
-    #stack = sitk.GetImageFromArray(x)
-    #stack = sitk.Cast(stack, sitk.sitkUInt16)
-    #sitk.WriteImage(stack, path)
+
     imageio.volwrite(path, x[..., 0])
         
 def write3d(x, path):

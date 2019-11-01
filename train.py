@@ -10,35 +10,34 @@ from utils import *
 from config import *
 
 ###====================== HYPER-PARAMETERS ===========================###
-img_size = config.img_size * np.array(config.size_factor) # this is a numpy array, not a python list, cannot be concated with other list [] by "+"
-n_slices = config.PSF.n_slices
-n_num = config.PSF.Nnum
-base_size = img_size // n_num # lateral size of lf_extra
+img_size   = config.img_size * np.array(config.size_factor) # a numpy array, not a python list, cannot be concated with other list [] by "+"
+n_slices   = config.PSF.n_slices
+n_num      = config.PSF.Nnum
+base_size  = img_size // n_num # lateral size of lf_extra
 
 n_channels = config.n_channels
-## Adam
+
 batch_size = config.TRAIN.batch_size
-lr_init = config.TRAIN.lr_init
-beta1 = config.TRAIN.beta1
+lr_init    = config.TRAIN.lr_init
+beta1      = config.TRAIN.beta1
 
 ## learning
-n_epoch = config.TRAIN.n_epoch
-lr_decay = config.TRAIN.lr_decay
+n_epoch     = config.TRAIN.n_epoch
+lr_decay    = config.TRAIN.lr_decay
 decay_every = config.TRAIN.decay_every
 
-ni = int(np.ceil(np.sqrt(batch_size)))
-
-series_input = config.TRAIN.series_input
-time_series_len = 40
-
-test_save_dir = config.TRAIN.test_saving_path
-
-checkpoint_dir = config.TRAIN.ckpt_dir
+test_save_dir        = config.TRAIN.test_saving_path
+checkpoint_dir       = config.TRAIN.ckpt_dir
 ckpt_saving_interval = config.TRAIN.ckpt_saving_interval
-log_dir = config.TRAIN.log_dir
+log_dir              = config.TRAIN.log_dir
 
     
 def train(begin_epoch):
+    """Train the VCD-Net
+
+    Params
+        -begin_epoch: int, if not 0, a checkpoint file will be loaded and the training will continue from there
+    """
     ## create folders to save result images and trained model
     save_dir = test_save_dir
     tl.files.exists_or_mkdir(save_dir)
@@ -52,7 +51,7 @@ def train(begin_epoch):
     t_lf_extra = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
     t_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
 
-    vars_tag = 'LFRNet'
+    vars_tag = 'vcdnet'
 
     with tf.device('/gpu:{}'.format(config.TRAIN.device)):
         net = UNet(t_lf_extra, n_slices, img_size, is_train=True, name=vars_tag)
@@ -74,23 +73,23 @@ def train(begin_epoch):
     sess = tf.Session(config=configProto)
 
     tf.summary.scalar('loss', loss)
-    merge_op = tf.summary.merge_all()
+    merge_op       = tf.summary.merge_all()
     summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
     sess.run(tf.global_variables_initializer())
        
     def __find_available_ckpt(end):
         begin = end
-        while not os.path.exists(checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin)):
+        while not os.path.exists(checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin)):
             begin -= 10
             if begin < 0:
                 return 0
         print('\n\ninit ckpt found at epoch %d\n\n' % begin)        
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin), network=net) 
+        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin), network=net) 
         return begin
         
     if (begin_epoch != 0):
-      if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
-        raise Exception('falied to load % s' % '_lfrnet_epoch{}.npz'.format(begin_epoch))
+      if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
+        raise Exception('falied to load % s' % '_vcdnet_epoch{}.npz'.format(begin_epoch))
     else:
       __find_available_ckpt(n_epoch)
       
@@ -98,7 +97,7 @@ def train(begin_epoch):
     
     ###====================== LOAD DATA ===========================###
     training_dataset = Dataset(config.TRAIN.target3d_path, config.TRAIN.lf2d_path, n_slices, n_num, base_size)
-    dataset_size = training_dataset.prepare(batch_size, n_epoch)
+    dataset_size     = training_dataset.prepare(batch_size, n_epoch)
     
     test_target3d, test_lf_extra = training_dataset.for_test()
     write3d(test_target3d, save_dir+'/target3d.tif') 
@@ -122,8 +121,7 @@ def train(begin_epoch):
         summary_writer.add_summary(batch_summary, epoch * (dataset_size // batch_size - 1) + cursor / batch_size)
 
         if (epoch !=0) and (epoch%ckpt_saving_interval == 0) and (cursor == 0):
-        #if (epoch%ckpt_saving_interval == 0) and (cursor == 0):   
-            npz_file_name = checkpoint_dir+'/{}_lfrnet_epoch{}.npz'.format(label, epoch)
+            npz_file_name = checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, epoch)
             tl.files.save_npz(net.all_params, name=npz_file_name, sess=sess)
 
             for idx in range(0, len(test_lf_extra), batch_size):
@@ -132,7 +130,9 @@ def train(begin_epoch):
                     #test_hr_batch = test_target3d[idx : idx + batch_size]
                     out = sess.run(net.outputs, {t_lf_extra : test_lr_batch})
                     write3d(out, save_dir+'test_epoch{}_{}.tif'.format(epoch, idx))
-    
+
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
