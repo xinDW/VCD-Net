@@ -38,9 +38,10 @@ def read_valid_images(path):
     
     return img_set, height, width
 
+def __raise(info):
+    raise Exception(info)
 
-
-def evaluate(epoch, batch_size=1):
+def evaluate(epoch, batch_size=1, use_cpu=False):
     '''
     def _eval_images_in_folder_root(folder, check_empty=False, sess=None):  
         valid_img_list = sorted(tl.files.load_file_list(path=folder, regx='.*.tif', printable=False))
@@ -92,12 +93,13 @@ def evaluate(epoch, batch_size=1):
     
     #t_image = tf.placeholder('float32', [batch_size, int(np.ceil(lf_size[0]/n_num)) , int(np.ceil(lf_size[1]/n_num)), n_num ** 2])
     t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
-    with tf.device('/cpu:0'):
-    #with tf.device('/gpu:0'):
+
+    device_str = '/gpu:0' if not use_cpu else '/cpu:0'
+
+    with tf.device(device_str):
         net = UNet(t_image, config.PSF.n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet') 
   
     ckpt_found = False
-
     filelist = os.listdir(checkpoint_dir)
     for file in filelist:
         if '.npz' in file and str(epoch) in file:
@@ -106,9 +108,7 @@ def evaluate(epoch, batch_size=1):
             ckpt_found = True
             break
 
-    if not ckpt_found:
-        raise Exception('no such checkpoint file')
-
+    ckpt_found or __raise('no such checkpoint file')
           
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
         tl.layers.initialize_global_variables(sess)
@@ -116,8 +116,10 @@ def evaluate(epoch, batch_size=1):
         
         for idx in range(0,len(valid_lf_extras), batch_size):
             start_time = time.time()  
+
             recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
             print("time elapsed : %4.4fs " % (time.time() - start_time))
+            
             write3d(recon, save_dir+'net_%s_%06d_epoch%d.tif' % (config.label, idx, epoch))
             #write3d(out, save_dir+'/epoch{}_{:0>4}.tif'.format(epoch, idx//batch_size))
             print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
@@ -130,13 +132,17 @@ if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
     parser.add_argument('-c', '--ckpt', type=int, default=0)
-    parser.add_argument('--batch', type=int, default=1)
+    parser.add_argument('-b', '--batch', type=int, default=1)
     parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
                         action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
+
+    parser.add_argument("--cpu", help="use CPU instead of GPU for inference",
+                        action="store_true") 
     
     args = parser.parse_args()
     ckpt = args.ckpt
     batch_size = args.batch
+    use_cpu = args.cpu
 
     evaluate(ckpt, batch_size)
     
