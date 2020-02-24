@@ -3,16 +3,20 @@ import os
 import tensorflow as tf
 import tensorlayer as tl
 import numpy as np
+import matplotlib.pyplot as plt
 
-from model import UNet
+from model import UNet_A, UNet_B, AtrousUNet, RDN
+from model.util.losses import *
 from dataset import Dataset
-from utils import *
-from config import *
+from utils import write3d
+from config import config
 
 ###====================== HYPER-PARAMETERS ===========================###
 img_size   = config.img_size * np.array(config.size_factor) # a numpy array, not a python list, cannot be concated with other list [] by "+"
+n_feats    = config.n_channels
 n_slices   = config.PSF.n_slices
 n_num      = config.PSF.Nnum
+n_interp   = config.n_interp
 base_size  = img_size // n_num # lateral size of lf_extra
 
 n_channels = config.n_channels
@@ -26,112 +30,277 @@ n_epoch     = config.TRAIN.n_epoch
 lr_decay    = config.TRAIN.lr_decay
 decay_every = config.TRAIN.decay_every
 
-test_save_dir        = config.TRAIN.test_saving_path
+label                = config.label
+test_saving_dir      = config.TRAIN.test_saving_path
 checkpoint_dir       = config.TRAIN.ckpt_dir
 ckpt_saving_interval = config.TRAIN.ckpt_saving_interval
 log_dir              = config.TRAIN.log_dir
 
-    
-def train(begin_epoch):
-    """Train the VCD-Net
+normalize_mode  = config.normalize_mode
+using_bn        = config.use_batch_norm
+using_edge_loss = config.TRAIN.using_edge_loss
+using_vgg_loss  = config.TRAIN.using_vgg_loss
 
-    Params
-        -begin_epoch: int, if not 0, a checkpoint file will be loaded and the training will continue from there
-    """
-    ## create folders to save result images and trained model
-    save_dir = test_save_dir
-    tl.files.exists_or_mkdir(save_dir)
-    tl.files.exists_or_mkdir(checkpoint_dir)
-    tl.files.exists_or_mkdir(log_dir)
-    
-    ###========================== DEFINE MODEL ============================###
-    with tf.variable_scope('learning_rate'):
-        lr_v = tf.Variable(lr_init, trainable=False)
+def __raise(e):
+    raise(e)
 
-    t_lf_extra = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
-    t_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
+def is_number(x):
+    try:
+        float(x)
+        return True
+    except ValueError:
+        return False
 
-    vars_tag = 'vcdnet'
+class Trainer:   
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self.losses = {}
 
-    with tf.device('/gpu:{}'.format(config.TRAIN.device)):
-        net = UNet(t_lf_extra, n_slices, img_size, is_train=True, name=vars_tag)
+    def build_graph(self):
+        ###========================== DEFINE MODEL ============================###
+        with tf.variable_scope('learning_rate'):
+            self.learning_rate = tf.Variable(lr_init, trainable=False)
 
-    net.print_params(False)   
-    g_vars = tl.layers.get_variables_with_name(vars_tag, train_only=True, printable=True)
+        if 'atrous' in label or 'rdn' in label:
+            self.plchdr_lf = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], 1], name='t_lfp')
+        else:
+            self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
+        
+        self.plchdr_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
+        #self.plchdr_target3d = tf.placeholder('float32', [batch_size, base_size[0] * 8, base_size[1]* 8, n_slices], name='t_target3d')
+        vars_tag = 'vcdnet'
 
-    #====================
-    #loss function
-    #=====================
-    loss = tf.reduce_mean(tf.squared_difference(t_target3d, net.outputs))
+        with tf.device('/gpu:{}'.format(config.TRAIN.device)):
+            if 'old' in label or 'dense' in label:
+                self.net, _ = UNet_B(self.plchdr_lf, out_size=img_size, n_slices=n_slices, is_train=True, reuse=False, name=vars_tag)
+            elif 'atrous' in label:
+                self.net = AtrousUNet(self.plchdr_lf, n_feats=n_feats, n_num=n_num, n_slices=n_slices, reuse=False, name=vars_tag)
+            elif 'rdn' in label:
+                self.net = RDN(self.plchdr_lf, n_slices=n_slices, n_num=n_num, bn=False, is_train=True, reuse=False, name=vars_tag)
+            else: 
+                self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, out_size=img_size, n_interp=n_interp, n_channels=n_channels, use_bn=using_bn, is_train=True, name=vars_tag)
+           
+            
 
-    optim = tf.train.AdamOptimizer(lr_v, beta1=beta1).minimize(loss, var_list=g_vars)
-    
-    
-    configProto = tf.ConfigProto(allow_soft_placement=False, log_device_placement=False)
-    configProto.gpu_options.allow_growth = True
-    
-    sess = tf.Session(config=configProto)
+        self.net.print_params(False)
+        g_vars = tl.layers.get_variables_with_name(vars_tag, train_only=True, printable=True)
 
-    tf.summary.scalar('loss', loss)
-    merge_op       = tf.summary.merge_all()
-    summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
-    sess.run(tf.global_variables_initializer())
+        #====================
+        #loss function
+        #=====================
+        loss_ln    = tf.reduce_mean(tf.squared_difference(self.plchdr_target3d, self.net.outputs))
+        self.loss  = loss_ln
+        self.losses.update({'ln_loss': loss_ln})
+
+        if using_edge_loss:
+            loss_edges = 1e-1 * edges_loss(self.net.outputs, self.plchdr_target3d)
+            self.loss += loss_edges
+            self.losses.update({'edge_loss': loss_edges})
+        
+        # if using_vgg_loss:
+        #     vgg_loss       = self._get_vgg_loss(self.net.outputs, self.plchdr_target3d)
+        #     self.losses.update({'vgg_loss' : vgg_loss})
+        #     self.loss += vgg_loss
+
        
-    def __find_available_ckpt(end):
+
+        configProto = tf.ConfigProto(allow_soft_placement=False, log_device_placement=False)
+        configProto.gpu_options.allow_growth = True
+        
+        self.sess = tf.Session(config=configProto)
+
+        tf.summary.scalar('ln_loss', loss_ln)
+        
+        self.loss_test      = loss_ln
+        
+        self.optim          = tf.train.AdamOptimizer(self.learning_rate, beta1=beta1).minimize(self.loss, var_list=g_vars)
+
+        
+
+        self.merge_op       = tf.summary.merge_all()
+        self.summary_writer = tf.summary.FileWriter(log_dir, self.sess.graph)
+
+    def _train(self, begin_epoch):
+        """Train the VCD-Net
+
+        Params
+            -begin_epoch: int, if not 0, a checkpoint file will be loaded and the training will continue from there
+        """
+        ## create folders to save result images and trained model
+        save_dir = test_saving_dir
+        tl.files.exists_or_mkdir(save_dir)
+        tl.files.exists_or_mkdir(checkpoint_dir)
+        tl.files.exists_or_mkdir(log_dir)
+        
+        
+        self.sess.run(tf.global_variables_initializer())
+        
+      
+        if (begin_epoch != 0):
+            ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(begin_epoch) in filename) ] 
+            if len(ckpt_file) == 0 or tl.files.load_and_assign_npz(sess=self.sess, name=os.path.join(checkpoint_dir, ckpt_file[0]), network=self.net) is False:
+                raise(Exception('falied to load % s' % '{}/vcdnet_epoch{}.npz'.format(label, begin_epoch)))
+        # else:
+        #     self._find_available_ckpt(n_epoch)
+        
+        self.sess.run(tf.assign(self.learning_rate, lr_init))
+        
+        if using_vgg_loss:
+            self._load_vgg_model(sess=self.sess)    
+
+        ###====================== LOAD DATA ===========================###
+        
+        dataset_size     = self.dataset.prepare(batch_size, n_epoch)
+        final_cursor     = (dataset_size // batch_size - 1) * batch_size
+        self._get_test_data()
+        
+
+        fetches = self.losses
+        fetches['optim'] = self.optim
+        fetches['batch_summary'] = self.merge_op
+
+        while self.dataset.hasNext():
+            step_time = time.time()
+            HR_batch, LF_batch, cursor, epoch = self.dataset.iter()
+
+            epoch += begin_epoch
+           
+            if epoch != 0 and (epoch % decay_every == 0) and cursor == 0:
+                new_lr_decay = lr_decay ** (epoch // decay_every)
+                self.sess.run(tf.assign(self.learning_rate, lr_init * new_lr_decay))
+                print('\nlearning rate updated : %f\n' % (lr_init * new_lr_decay))
+
+            evaluated = self.sess.run(fetches, {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch})
+
+            if cursor == final_cursor:
+                self._record_avg_test_loss(epoch, self.sess)
+                if epoch != 0 and (epoch%ckpt_saving_interval == 0):
+                    self._save_intermediate_ckpt(epoch, self.sess)
+
+
+            print("\rEpoch:[%d/%d] iter:[%d/%d] time: %4.3fs, " % (epoch, n_epoch, cursor, dataset_size, time.time() - step_time), end="")
+            losses_val = {name : value for name, value in evaluated.items() if 'loss' in name}
+            print(losses_val, end='')
+
+            self.summary_writer.add_summary(evaluated['batch_summary'], epoch * (dataset_size // batch_size - 1) + cursor / batch_size)
+
+    def _get_test_data(self):
+        self.test_target3d, self.test_lf_extra = self.dataset.for_test()
+        write3d(self.test_target3d[0 : batch_size], test_saving_dir+'/target3d.tif') 
+        write3d(self.test_lf_extra[0 : batch_size], test_saving_dir+'/lf_extra.tif') 
+
+    def _save_intermediate_ckpt(self, tag, sess):
+    
+        tag = ('epoch%d' % tag) if is_number(tag) else tag
+
+        npz_file_name = checkpoint_dir+'/vcdnet_{}.npz'.format(tag)
+        tl.files.save_npz(self.net.all_params, name=npz_file_name, sess=sess)
+
+        if 'epoch' in tag:
+            test_lr_batch = self.test_lf_extra[0 : batch_size]
+            out = self.sess.run(self.net.outputs, {self.plchdr_lf : test_lr_batch})
+            write3d(out, test_saving_dir+'test_{}.tif'.format(tag))
+
+    def _record_avg_test_loss(self, epoch, sess):
+        if 'min_test_loss' not in dir(self):
+            self.min_test_loss = 1e10
+            self.best_epoch    = 0
+            self.test_loss_plt = []
+
+        test_loss = 0
+        test_data_num = len(self.test_lf_extra)
+        print("")
+        for idx in range(0, test_data_num, batch_size):
+            if idx + batch_size <= test_data_num:
+                test_lr_batch = self.test_lf_extra[idx : idx + batch_size]
+                test_hr_batch = self.test_target3d[idx : idx + batch_size]
+                
+                
+                feed_test = {self.plchdr_lf : test_lr_batch, self.plchdr_target3d : test_hr_batch}
+                test_loss_batch = sess.run(self.loss_test, feed_test)
+
+                test_loss += test_loss_batch
+                print('\rvalidation [% 2d/% 2d] loss = %.6f   ' % (idx, test_data_num, test_loss_batch), end='')
+
+
+        test_loss /= (len(self.test_lf_extra) // batch_size)       
+        print('avg = %.6f best = %.6f (@epoch%d)' % (test_loss, self.min_test_loss, self.best_epoch))
+        self.test_loss_plt.append([epoch, test_loss])
+
+        if (test_loss < self.min_test_loss):
+            self.min_test_loss = test_loss
+            self.best_epoch    = epoch
+            self._save_intermediate_ckpt(tag='best', sess=sess)
+            # self._save_pb(sess)
+
+    def _plot_test_loss(self):
+        loss = np.asarray(self.test_loss_plt)
+        plt.figure()
+        plt.plot(loss[:, 0], loss[:, 1])
+        plt.show()
+        plt.savefig(test_saving_dir + 'test_loss.png', bbox_inches='tight')
+
+    def train(self, **kwargs):
+        try:
+            self._train(**kwargs)
+        finally:
+            self._plot_test_loss()   
+        
+
+
+    def _find_available_ckpt(self, end):
         begin = end
-        while not os.path.exists(checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin)):
+        while not os.path.exists(checkpoint_dir+'/vcdnet_epoch{}.npz'.format(begin)):
             begin -= 10
             if begin < 0:
                 return 0
         print('\n\ninit ckpt found at epoch %d\n\n' % begin)        
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin), network=net) 
+        tl.files.load_and_assign_npz(sess=self.sess, name=checkpoint_dir+'/vcdnet_epoch{}.npz'.format(begin), network=self.net) 
         return begin
-        
-    if (begin_epoch != 0):
-      if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, begin_epoch), network=net) is False:
-        raise Exception('falied to load % s' % '_vcdnet_epoch{}.npz'.format(begin_epoch))
-    else:
-      __find_available_ckpt(n_epoch)
-      
-    sess.run(tf.assign(lr_v, lr_init))
     
-    ###====================== LOAD DATA ===========================###
-    training_dataset = Dataset(config.TRAIN.target3d_path, config.TRAIN.lf2d_path, n_slices, n_num, base_size)
-    dataset_size     = training_dataset.prepare(batch_size, n_epoch)
-    
-    test_target3d, test_lf_extra = training_dataset.for_test()
-    write3d(test_target3d, save_dir+'/target3d.tif') 
-    write3d(test_lf_extra, save_dir+'/lf_extra.tif') 
-    
+    '''
+    def _build_vgg(self, input):
+        if 'net_vgg' not in dir(self):
+            self.net_vgg = Vgg19_simple_api(input, reuse=False)
+            return self.net_vgg
+        else:
+            return Vgg19_simple_api(input, reuse=True)
 
-    while training_dataset.hasNext():
-        step_time = time.time()
-        HR_batch, LF_batch, cursor, epoch = training_dataset.iter()
+    def _get_vgg_loss(self, pred, target):
+        n = pred.shape.as_list()[-1]
+        mid = n // 2
+        feat_p = self._build_vgg(pred[..., mid : mid + 1])
+        feat_t = self._build_vgg(target[..., mid : mid + 1])
+        loss =  1e-2 * tl.cost.mean_squared_error(feat_p.outputs, feat_t.outputs, is_mean=True)
 
-        epoch += begin_epoch
-        if epoch != 0 and (epoch % decay_every == 0) and cursor == batch_size:
-            new_lr_decay = lr_decay ** (epoch // decay_every)
-            sess.run(tf.assign(lr_v, lr_init * new_lr_decay))
-            print('\nlearning rate updated : %f\n' % (lr_init * new_lr_decay))
+        # loss = 0 
+        # for i in range(n):
+        #     feat_p = self._build_vgg(pred[..., i : i + 1])
+        #     feat_t = self._build_vgg(target[..., i : i + 1])
+        #     loss +=  tl.cost.mean_squared_error(feat_p.outputs, feat_t.outputs, is_mean=True)
+        # loss *= 1. / n * 1e-2
+        return loss
 
-        error_ln,  _, batch_summary = sess.run([loss, optim, merge_op], {t_lf_extra : LF_batch, t_target3d : HR_batch})
+    def _load_vgg_model(self, sess):
+        vgg19_npy_path = "model/vgg19.npy"
+        if not os.path.isfile(vgg19_npy_path):
+            print("Please download vgg19.npz from : https://github.com/machrisaa/tensorflow-vgg")
+            exit()
+        npz = np.load(vgg19_npy_path, encoding='latin1').item()
 
-
-        print("Epoch:[%d/%d] iter:[%d/%d] times: %4.3fs, loss:%.6f" % (epoch, n_epoch, cursor, dataset_size, time.time() - step_time, error_ln))
-        summary_writer.add_summary(batch_summary, epoch * (dataset_size // batch_size - 1) + cursor / batch_size)
-
-        if (epoch !=0) and (epoch%ckpt_saving_interval == 0) and (cursor == 0):
-            npz_file_name = checkpoint_dir+'/{}_vcdnet_epoch{}.npz'.format(label, epoch)
-            tl.files.save_npz(net.all_params, name=npz_file_name, sess=sess)
-
-            for idx in range(0, len(test_lf_extra), batch_size):
-                if idx + batch_size <= len(test_lf_extra):
-                    test_lr_batch = test_lf_extra[idx : idx + batch_size]
-                    #test_hr_batch = test_target3d[idx : idx + batch_size]
-                    out = sess.run(net.outputs, {t_lf_extra : test_lr_batch})
-                    write3d(out, save_dir+'test_epoch{}_{}.tif'.format(epoch, idx))
-
-
+        params = []
+        for val in sorted( npz.items() ):
+            W = np.asarray(val[1][0])
+            b = np.asarray(val[1][1])
+            
+            if val[0] == 'conv1_1':
+                W = W[:,:,0:1,:]
+            if val[0] == 'conv5_1':
+                break
+            print("  Loading %s: %s, %s" % (val[0], W.shape, b.shape))
+            params.extend([W, b])
+        tl.files.assign_params(sess, params, self.net_vgg)    
+    '''
 
 if __name__ == '__main__':
     import argparse
@@ -140,4 +309,9 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--ckpt', type=int, default=0, help='')
     
     args = parser.parse_args()
-    train(args.ckpt)
+
+    training_dataset = Dataset(config.TRAIN.target3d_path, config.TRAIN.lf2d_path, n_slices, n_num, base_size, normalize_mode=normalize_mode)
+    trainer          = Trainer(training_dataset)
+    trainer.build_graph()
+
+    trainer.train(begin_epoch=args.ckpt)

@@ -5,8 +5,19 @@ import os
 import time
 
 from config import config
+
+from model import UNet_A, UNet_B, AtrousUNet, RDN
 from utils import *
-from model import UNet
+
+
+n_num      = config.PSF.Nnum
+n_slices   = config.PSF.n_slices
+n_interp   = config.n_interp
+n_channels = config.n_channels
+label      = config.label
+
+use_bn = config.use_batch_norm
+normalize_fn = normalize_percentile if config.normalize_mode == 'percentile' else normalize
 
 def __raise(info):
     raise Exception(info)
@@ -20,7 +31,11 @@ def read_valid_images(path):
 
     img_list = sorted(tl.files.load_file_list(path=path, regx='.*.tif', printable=False))
 
-    img_set  = [__cast(get_lf_extra(img_file, path)) for img_file in img_list]
+    if config.normalize_mode == 'percentile':
+        img_set  = [__cast(get_lf_extra(img_file, path, n_num=n_num, normalize_fn=normalize_fn, low=5, high=100)) for img_file in img_list]
+    else:
+        img_set  = [__cast(get_lf_extra(img_file, path, n_num=n_num, normalize_fn=normalize_fn)) for img_file in img_list]
+        # img_set  = [__cast(get_img2d_fn(img_file, path, normalize_fn=normalize_fn)) for img_file in img_list]
 
     len(img_set) != 0 or __raise("none of the images have been loaded")
     
@@ -28,7 +43,7 @@ def read_valid_images(path):
     img_set = np.asarray(img_set)
     _, height, width, _ = img_set.shape
     
-    return img_set, height, width
+    return img_set, img_list, height, width
 
 
 def infer(epoch, batch_size=1, use_cpu=False):
@@ -40,47 +55,67 @@ def infer(epoch, batch_size=1, use_cpu=False):
         -use_cpu   : bool, whether to use cpu for inference. If false, gpu will be used.
     """
     
+    epoch = 'best' if epoch == 0 else epoch
 
     checkpoint_dir    = config.TRAIN.ckpt_dir
     valid_lr_img_path = config.VALID.lf2d_path
     save_dir          = config.VALID.saving_path
-    n_num             = config.PSF.Nnum
 
     tl.files.exists_or_mkdir(save_dir)
     
-    valid_lf_extras, height, width = read_valid_images(valid_lr_img_path)
-    
+    valid_lf_extras, names, height, width = read_valid_images(valid_lr_img_path)
     t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
+    # t_image = tf.placeholder('float32', [batch_size, height , width, 1])
 
-    device_str = '/gpu:0' if not use_cpu else '/cpu:0'
-    with tf.device(device_str):
-        net = UNet(t_image, config.PSF.n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet') 
-  
-    # ckpt_found = False
-    # for file in os.listdir(checkpoint_dir):
-    #     if '.npz' in file and str(epoch) in file:
-    #         ckpt_file = file
-    #         ckpt_found = True
-    #         break
-
-    # ckpt_found or __raise('no such checkpoint file')
+    device_str = '/gpu:0' if not use_cpu else '/cpu:0'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+    with tf.device(device_str): 
+        if 'old_net' in label:
+            net, _ = UNet_B(t_image, n_slices=n_slices, out_size=[height * n_num, width * n_num], is_train=True, reuse=False, name='unet_b')
+        elif 'atrous' in label:
+            net = AtrousUNet(t_image, n_feats=128, n_num=n_num, n_slices=n_slices, reuse=False)
+        elif 'rdn' in label:
+            net = RDN(t_image, n_slices=n_slices, n_num=n_num, bn=False, is_train=False, reuse=False, name='rdn')
+        else:
+            net = UNet_A(t_image, n_slices=n_slices, out_size=[height * n_num, width * n_num], n_interp=n_interp, n_channels=n_channels, use_bn=use_bn, is_train=True, reuse=False, name='unet_a') 
 
     ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(epoch) in filename) ] 
     len(ckpt_file) > 0 or __raise('no such checkpoint file')
 
+    
+    bitdepth = config.VALID.bitdepth
+    assert(bitdepth in [8, 16, 32])
+
     with tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False)) as sess:
         tl.layers.initialize_global_variables(sess)
-        tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/' + ckpt_file[0], network=net)
+        ckpt_file = checkpoint_dir + '/' + ckpt_file[0] 
+        print('loading %s' % ckpt_file)
+        tl.files.load_and_assign_npz(sess=sess, name=ckpt_file, network=net)
+        
+        #im_buffer        = np.zeros([len(valid_lf_extras), height * n_num, width * n_num, config.PSF.n_slices])
+        im_buffer        = []
+        recon_start_time = time.time() 
+        recon_time       = 0
+
         
         for idx in range(0,len(valid_lf_extras), batch_size):
             start_time = time.time()  
-
+            write3d(valid_lf_extras[idx:idx+batch_size], save_dir+'lf-%s.tif' % (names[idx]), bitdepth=32)
             recon = sess.run(net.outputs, {t_image : valid_lf_extras[idx:idx+batch_size]})
-            print("time elapsed : %4.4fs " % (time.time() - start_time))
+            batch_time = time.time() - start_time
+            recon_time = recon_time + batch_time
+            print("time elapsed (sess.run): %4.4fs " % (time.time() - start_time))
+            im_buffer.append(recon)
+            # write3d(recon, save_dir+'net_%s_epoch%d_%06d.tif' % (config.label, epoch, idx))
+        print("recon time elapsed (sess.run): %4.4fs " % (recon_time))
+        # print("recon time elapsed (sess.run + bufferring): %4.4fs " % (time.time() - recon_start_time))
+        
+        print('saving results ... ')
+        io_start_time = time.time()
+        for idx, im in enumerate(im_buffer):
+            write3d(im, save_dir+'vcd-%s' % (names[idx]), bitdepth=bitdepth)
+        print("IO time elapsed (imwrite): %4.4fs " % (time.time() - io_start_time))
 
-            write3d(recon, save_dir+'net_%s_epoch%d_%06d.tif' % (config.label, epoch, idx))
-            print('writing %d / %d ...' % (idx + 1, len(valid_lf_extras)))
-
+    
           
     
  

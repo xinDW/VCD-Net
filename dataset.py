@@ -6,23 +6,38 @@ from utils import *
 import PIL.Image as pilImg
 
 class Dataset:
-    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, test_num=4, multi_scale=False):
+    def __init__(self, train_hr3d_path, train_lf2d_path, n_slices, n_num, lf2d_base_size, normalize_mode='max', shuffle=True, multi_scale=False):
         '''
         Params:
-            n_slices : depth of the 3d target images (the reconstructions)
-            n_num    : Nnum of light filed imaging
-            lf2d_base_size: [height, width], equals to (lf2d_size / n_num)
+            n_slices      : int, depth of the 3d target images (the reconstructions)
+            n_num         : int, Nnum of light filed imaging
+            lf2d_base_size: 2-element list, [height, width], equals to (lf2d_size / n_num)
+            normalize_mode: str, normalization mode of dataset in ['max', 'percentile']
+            shuffle       : boolean, whether to shuffle the training dataset
+            multi_scale   : boolean, whether to generate multi-scale HRs
         '''
         self.train_lf2d_path = train_lf2d_path
         self.train_hr3d_path = train_hr3d_path
 
-        self.lf2d_base_size = lf2d_base_size
-        self.n_slices = n_slices
-        self.n_num = n_num
-        self.multi_scale = multi_scale
-        self.test_img_num = test_num
+        self.lf2d_base_size  = lf2d_base_size
+        self.n_slices        = n_slices
+        self.n_num           = n_num
+        self.shuffle         = shuffle
+        self.multi_scale     = multi_scale
+        
+        self.normalize_fn = normalize_percentile if normalize_mode is 'percentile' else normalize
 
-    def _load_dataset(self):
+    def _load_dataset(self, shuffle=True):
+        def _shuffle_in_unison(arr1, arr2):
+            """shuffle elements in arr1 and arr2 in unison along the leading dimension 
+            Params:
+                -arr1, arr2: np.ndarray
+                    must be in the same size in the leading dimension
+            """
+            assert (len(arr1) == len(arr2))
+            new_idx = np.random.permutation(len(arr1)) 
+            return arr1[new_idx], arr2[new_idx]
+
         def _load_imgs(path, fn, regx='.*.tif', printable=False, **kwargs):
             img_list = sorted(tl.files.load_file_list(path=path, regx=regx, printable=printable))
             imgs = []
@@ -31,18 +46,23 @@ class Dataset:
                 img = fn(img_file, path, **kwargs) 
                 if (img.dtype != np.float32):
                     img = img.astype(np.float32, casting='unsafe')
-                print('%s : %s' % (img_file, str(img.shape)))  
+                print('\r%s : %s' % (img_file, str(img.shape)), end='')  
                 imgs.append(img)
-
+            print()
             imgs = np.asarray(imgs)
             return imgs
 
-        self.training_data_lf2d = _load_imgs(self.train_lf2d_path, fn=get_lf_extra, n_num=self.n_num)
-        self.training_data_hr3d = _load_imgs(self.train_hr3d_path, fn=get_and_rearrange3d)
-        if (len(self.training_data_hr3d) == 0) or (len(self.training_data_lf2d) == 0) :
+        training_data_hr3d = _load_imgs(self.train_hr3d_path, fn=get_and_rearrange3d, normalize_fn=self.normalize_fn)
+        training_data_lf2d = _load_imgs(self.train_lf2d_path, fn=get_lf_extra, n_num=self.n_num, normalize_fn=self.normalize_fn)
+        # training_data_lf2d = _load_imgs(self.train_lf2d_path, fn=get_img2d_fn, normalize_fn=self.normalize_fn)
+       
+        if (len(training_data_hr3d) == 0) or (len(training_data_lf2d) == 0) :
             raise Exception("none of the images have been loaded, please check the file directory in config")
             
-        assert self.training_data_hr3d.shape[0] == self.training_data_lf2d.shape[0]
+        assert training_data_hr3d.shape[0] == training_data_lf2d.shape[0]
+
+        [self.training_data_hr3d, self.training_data_lf2d] = _shuffle_in_unison(training_data_hr3d, training_data_lf2d) if shuffle else [training_data_hr3d, training_data_lf2d]
+
         self.training_pair_num = self.training_data_hr3d.shape[0]
         
 
@@ -90,10 +110,12 @@ class Dataset:
         this function must be called after the Dataset instance is created
         '''
         if os.path.exists(self.train_lf2d_path) and os.path.exists(self.train_hr3d_path):
-            self._load_dataset()
+            self._load_dataset(shuffle=self.shuffle)
         else:
             raise Exception('image data path doesn\'t exist')
         
+
+        self.test_img_num = int(self.training_pair_num * 0.1)
         '''
         generate HR pyramid
         '''

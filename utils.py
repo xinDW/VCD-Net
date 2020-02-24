@@ -12,17 +12,39 @@ __all__ = [
     'get_img2d_fn',
     'get_lf_extra',
     'lf_extract_fn',
-    'write3d'
+    'write3d',
+    'normalize_percentile',
+    'normalize',
+    'fft',
+    'spectrum2im'
 ]
+def fft(im):
+    """
+    Params:
+        -im:  ndarray in shape [height, width, channels]
 
-def get_img3d_fn(filename, path):
+    """
+    assert len(im.shape) == 3
+    spec = np.fft.fft2(im, axes=(0, 1))
+    return np.fft.fftshift(spec, axes=(0, 1))
+
+def spectrum2im(fs):
+    """
+    Convert the Fourier spectrum into the original image
+    Params:
+        -fs: ndarray in shape [batch, height, width, channels]
+    """
+    fs = np.fft.fftshift(fs, axes=(1, 2))
+    return np.fft.ifft2(fs, axes=(1, 2))
+
+def get_img3d_fn(filename, path, normalize_fn):
     """
     Parames:
         mode - Depth : read 3-D image in format [depth=slices, height, width, channels=1]
                Channels : [height, width, channels=slices]
     """
     image = imageio.volread(path + filename) # [depth, height, width]
-    image = image[..., np.newaxis] # [depth, height, width, channels]
+    # image = image[..., np.newaxis] # [depth, height, width, channels]
             
     return normalize_fn(image)
     
@@ -38,34 +60,41 @@ def rearrange3d_fn(image):
         image_re[:,:,d] = image[d,:,:]
     return image_re    
 
-def get_and_rearrange3d(filename, path):
-    image = get_img3d_fn(filename, path)
+def get_and_rearrange3d(filename, path, normalize_fn):
+    image = get_img3d_fn(filename, path, normalize_fn=normalize_fn)
     return rearrange3d_fn(image)
     
-def get_img2d_fn(filename, path):
+def get_img2d_fn(filename, path, normalize_fn, **kwargs):
   
     image = imageio.imread(path + filename).astype(np.float)
     if image.ndim == 2:
         image = image[:,:, np.newaxis]
     #print(image.shape)
-    return normalize_fn(image)
+    return normalize_fn(image, **kwargs)
 
-def get_lf_extra(filename, path, n_num=11):
-    image = get_img2d_fn(filename, path)
-    extra = lf_extract_fn(image, n_num=n_num)
-    
+def get_lf_extra(filename, path, n_num, normalize_fn, padding=False, **kwargs):
+    image = get_img2d_fn(filename, path, normalize_fn, **kwargs)
+    extra = lf_extract_fn(image, n_num=n_num, padding=padding)
     return extra
-    
-def resize_normalize_fn(x, size):
-    x = resize_fn(x, size) 
-    x = normalize_fn(x) 
-    return x
 
-def normalize_fn(x):   
-    x = x / (255. / 2.)
+
+
+def normalize(x):  
+    # max_ = np.max(x) * 1.2
+    max_ = 255.
+    x = x / (max_ / 2.)
     x = x - 1
     return x
-    
+
+def normalize_percentile(im, low=0.2, high=99.8):
+    p_low  = np.percentile(im, low)
+    p_high = np.percentile(im, high)
+
+    eps = 1e-3
+    x = (im - p_low) / (p_high - p_low + eps)
+    # print('%.2f-%.2f' %  (np.min(x), np.max(x)))
+    return x
+
 def resize_fn(x, size):
     '''
     Param:
@@ -83,8 +112,11 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
         -lf2d - 2-D light field projection
         -mode - 'toDepth' -- extract views to depth dimension (output format [depth=multi-slices, h, w, c=1])
                 'toChannel' -- extract views to channel dimension (output format [h, w, c=multi-slices])
-        -padding -   True : keep extracted views the same same as lf2d by padding zeros between valid pixels
+        -padding -   True : keep extracted views the same size as lf2d by padding zeros between valid pixels
                      False : shrink size of extracted views to (lf2d.shape / Nnum);
+    Returns:
+        ndarray [height, width, channels=n_num^2] if mode is 'toChannel' 
+                or [depth=n_num^2, height, width, channels=1] if mode is 'toDepth'
     """
     n = n_num
     h, w, c = lf2d.shape
@@ -139,18 +171,38 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
     
 def do_nothing(x):
     return x
-    
-def _write3d(x, path):
+
+def _clip(x, low=2, high=100):
+    min_ = np.percentile(x, low)
+    max_ = np.max(x) if high == 100 else np.percentile(x, high)
+    x = np.clip(x, min_, max_)
+    return x
+
+def _write3d(x, path, bitdepth=8):
     """
     x : [depth, height, width, channels=1]
     """
-    x = x + 1.  #[0, 2]
-    x = x * 65535. / 2.
-    x = x.astype(np.uint16)
+    assert (bitdepth in [8, 16, 32])
+    max_ = np.max(x)
 
+    if bitdepth == 32:
+         x = x.astype(np.float32)
+
+    else:
+        x = _clip(x, 2)
+        min_ = np.min(x)
+        x = (x - min_) / (max_ - min_)
+
+        if bitdepth == 8:
+            x = x * 255
+            x = x.astype(np.uint8)  
+        else:
+            x = x * 65535
+            x = x.astype(np.uint16) 
+    
     imageio.volwrite(path, x[..., 0])
         
-def write3d(x, path):
+def write3d(x, path, bitdepth=32):
     """
     x : [batch, depth, height, width, channels] or [batch, height, width, channels>3]
     """
@@ -172,7 +224,7 @@ def write3d(x, path):
     
     batch = x_re.shape[0]
     if batch == 1:
-        _write3d(x_re[0], path) 
+        _write3d(x_re[0], path, bitdepth) 
     else:  
         fragments = path.split('.')
         new_path = ''
@@ -180,7 +232,7 @@ def write3d(x, path):
             new_path = new_path + fragments[i]
         for index, image in enumerate(x_re):
             #print(image.shape)
-            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1]) 
+            _write3d(image, new_path + '_' + str(index) + '.' + fragments[-1], bitdepth) 
 
 def load_psf(path, n_num=11, psf_size=155, n_slices=16):
     '''
