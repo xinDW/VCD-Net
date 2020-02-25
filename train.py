@@ -13,13 +13,9 @@ from config import config
 
 ###====================== HYPER-PARAMETERS ===========================###
 img_size   = config.img_size * np.array(config.size_factor) # a numpy array, not a python list, cannot be concated with other list [] by "+"
-n_feats    = config.n_channels
 n_slices   = config.PSF.n_slices
 n_num      = config.PSF.Nnum
-n_interp   = config.n_interp
 base_size  = img_size // n_num # lateral size of lf_extra
-
-n_channels = config.n_channels
 
 batch_size = config.TRAIN.batch_size
 lr_init    = config.TRAIN.lr_init
@@ -36,10 +32,9 @@ checkpoint_dir       = config.TRAIN.ckpt_dir
 ckpt_saving_interval = config.TRAIN.ckpt_saving_interval
 log_dir              = config.TRAIN.log_dir
 
-normalize_mode  = config.normalize_mode
-using_bn        = config.use_batch_norm
+normalize_mode  = 'max'
 using_edge_loss = config.TRAIN.using_edge_loss
-using_vgg_loss  = config.TRAIN.using_vgg_loss
+# using_vgg_loss  = config.TRAIN.using_vgg_loss
 
 def __raise(e):
     raise(e)
@@ -61,24 +56,17 @@ class Trainer:
         with tf.variable_scope('learning_rate'):
             self.learning_rate = tf.Variable(lr_init, trainable=False)
 
-        if 'atrous' in label or 'rdn' in label:
-            self.plchdr_lf = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], 1], name='t_lfp')
-        else:
-            self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
-        
+        self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
         self.plchdr_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
         #self.plchdr_target3d = tf.placeholder('float32', [batch_size, base_size[0] * 8, base_size[1]* 8, n_slices], name='t_target3d')
+
         vars_tag = 'vcdnet'
 
         with tf.device('/gpu:{}'.format(config.TRAIN.device)):
             if 'old' in label or 'dense' in label:
                 self.net, _ = UNet_B(self.plchdr_lf, out_size=img_size, n_slices=n_slices, is_train=True, reuse=False, name=vars_tag)
-            elif 'atrous' in label:
-                self.net = AtrousUNet(self.plchdr_lf, n_feats=n_feats, n_num=n_num, n_slices=n_slices, reuse=False, name=vars_tag)
-            elif 'rdn' in label:
-                self.net = RDN(self.plchdr_lf, n_slices=n_slices, n_num=n_num, bn=False, is_train=True, reuse=False, name=vars_tag)
             else: 
-                self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, out_size=img_size, n_interp=n_interp, n_channels=n_channels, use_bn=using_bn, is_train=True, name=vars_tag)
+                self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
            
             
 
@@ -145,8 +133,8 @@ class Trainer:
         
         self.sess.run(tf.assign(self.learning_rate, lr_init))
         
-        if using_vgg_loss:
-            self._load_vgg_model(sess=self.sess)    
+        # if using_vgg_loss:
+        #     self._load_vgg_model(sess=self.sess)    
 
         ###====================== LOAD DATA ===========================###
         

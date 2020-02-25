@@ -11,7 +11,9 @@ config.PSF.n_slices = 61                                                        
 config.PSF.Nnum     = 11                                                            # N number of the light field psf
 config.n_channels   = 1                                                             # Number of channels of the training and validation data
 
-label                             = 'bead_[m30-30]_step1um_unet'                    # Distingiushable label for saving the checkpoint files and validation resulta
+label                             = 'bead_[m30-30]_step1um_sparse'                  # Distingiushable label for saving the checkpoint files and validation result
+label = 'a_test'
+# label                             = 'zebrafish_tail_[]_dense'
 config.label                      = label     
 
 
@@ -25,6 +27,7 @@ config.TRAIN.ckpt_dir             = "checkpoint/{}/".format(label)
 config.TRAIN.log_dir              = "log/{}/".format(label)
 config.TRAIN.device               = 0                                               # gpu used for training, 0 means the 1st device is used.
 config.TRAIN.valid_on_the_fly     = False
+config.TRAIN.using_edge_loss      = False                                           # use the edges loss to promote the quality of the reconstructions
 
 config.TRAIN.batch_size = 1
 config.TRAIN.lr_init = 1e-4
