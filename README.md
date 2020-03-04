@@ -12,13 +12,14 @@ Tensorflow implementation of training and using VCDNet for high-efficiency light
 Clone the code repository using Git or just download the zip file. Download and the example data and the trained model parameters from [Google Drive](https://drive.google.com/file/d/1oN83xto69ouzjqEOXaQWFJQG7AreZH5f/view?usp=sharing). The directory tree should be (after the example data and model parameters being downloaded and extracted): 
 ```    
 .
-├── model
-├── tensorlayer
-├── config.py
-├── dataset.py
-├── eval.py
-├── train.py
-├── utils.py
+├── code
+    └── model
+    └── tensorlayer
+    └── config.py
+    └── dataset.py
+    └── eval.py
+    └── train.py
+    └── utils.py
 ├── data
     └── checkpoint
         └── bead_40x_n11_[m30-30]_step1um_sparse
@@ -99,13 +100,13 @@ change the settings and the input path in `config.py`:
 config.PSF.n_slices          = 61
 config.PSF.Nnum              = 11
 label                        = 'bead_40x_n11_[m30-30]_step1um_sparse' 
-config.VALID.lf2d_path       = '/data/example_data/valid/bead(sparse)/'  
+config.VALID.lf2d_path       = '../data/example_data/valid/bead(sparse)/'  
 
 # or to infer the blood cell sample:
 config.PSF.n_slices          = 51
 config.PSF.Nnum              = 11
 label                        = 'rbcDSRED_20x_n11_[m50-50]_step2um_sparse' 
-config.VALID.lf2d_path       = '/data/example_data/valid/blood_cell/'  
+config.VALID.lf2d_path       = '../data/example_data/valid/blood_cell/'  
 ```
 
 Then run :
