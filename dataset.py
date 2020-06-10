@@ -41,29 +41,31 @@ class Dataset:
         def _load_imgs(path, fn, regx='.*.tif', printable=False, **kwargs):
             img_list = sorted(tl.files.load_file_list(path=path, regx=regx, printable=printable))
             imgs = []
-        
+
+            allocated = False
             for img_file in img_list:
                 img = fn(img_file, path, **kwargs) 
                 if (img.dtype != np.float32):
                     img = img.astype(np.float32, casting='unsafe')
                 print('\r%s : %s' % (img_file, str(img.shape)), end='')  
+
                 imgs.append(img)
             print()
-            imgs = np.asarray(imgs)
             return imgs
 
-        training_data_hr3d = _load_imgs(self.train_hr3d_path, fn=get_and_rearrange3d, normalize_fn=self.normalize_fn)
-        training_data_lf2d = _load_imgs(self.train_lf2d_path, fn=get_lf_extra, n_num=self.n_num, normalize_fn=self.normalize_fn)
-        # training_data_lf2d = _load_imgs(self.train_lf2d_path, fn=get_img2d_fn, normalize_fn=self.normalize_fn)
+        training_hr3d = _load_imgs(self.train_hr3d_path, fn=get_and_rearrange3d, normalize_fn=self.normalize_fn)
+        training_lf2d = _load_imgs(self.train_lf2d_path, fn=get_lf_extra, n_num=self.n_num, normalize_fn=self.normalize_fn)
+        # training_lf2d = _load_imgs(self.train_lf2d_path, fn=get_img2d_fn, normalize_fn=self.normalize_fn)
        
-        if (len(training_data_hr3d) == 0) or (len(training_data_lf2d) == 0) :
+        if (len(training_hr3d) == 0) or (len(training_lf2d) == 0) :
             raise Exception("none of the images have been loaded, please check the file directory in config")
             
-        assert training_data_hr3d.shape[0] == training_data_lf2d.shape[0]
+        # assert training_hr3d.shape[0] == training_lf2d.shape[0]
+        assert len(training_hr3d) == len(training_lf2d)
 
-        [self.training_data_hr3d, self.training_data_lf2d] = _shuffle_in_unison(training_data_hr3d, training_data_lf2d) if shuffle else [training_data_hr3d, training_data_lf2d]
-
-        self.training_pair_num = self.training_data_hr3d.shape[0]
+        # [self.training_hr3d, self.training_lf2d] = _shuffle_in_unison(training_hr3d, training_lf2d) if shuffle else [training_hr3d, training_lf2d]
+        [self.training_hr3d, self.training_lf2d] = training_hr3d, training_lf2d
+        self.training_pair_num = len(self.training_hr3d)
         
 
     def _generate_hr_pyramid(self):
@@ -84,7 +86,7 @@ class Dataset:
         hr_pyramid = []
 
         for idx in range(0, self.training_pair_num):
-            hr = self.training_data_hr3d[idx]
+            hr = self.training_hr3d[idx]
             tmp = []
             for scale in range(1, 4):
                 tmp.append(_resize_xy(hr, self.lf2d_base_size * (2**scale))
@@ -96,7 +98,7 @@ class Dataset:
         base_height, base_width = self.lf2d_base_size
 
         for idx in range(0, self.training_pair_num):
-            hr = self.training_data_hr3d[idx]
+            hr = self.training_hr3d[idx]
             hr_s1.append(_resize_xy(hr, [base_height * 2, base_width * 2]))
             hr_s2.append(_resize_xy(hr, [base_height * 4, base_width * 4]))
             hr_s3.append(_resize_xy(hr, [base_height * 8, base_width * 8]))
@@ -128,13 +130,13 @@ class Dataset:
         self.cursor = self.test_img_num
         self.epoch = 0
 
-        print('HR dataset : %s\nLF dataset: %s\n' % (str(self.training_data_hr3d.shape), str(self.training_data_lf2d.shape)))
+        print('HR dataset : %d\nLF dataset: %d\n' % (len(self.training_hr3d), len(self.training_lf2d)))
         #print('batch size : %d \n%d batches available\n' % (self.batch_size, (self.training_pair_num - batch_size) // batch_size))
         return self.training_pair_num - self.test_img_num
 
     def for_test(self):
         n = self.test_img_num
-        return self.training_data_hr3d[0 : n], self.training_data_lf2d[0 : n]
+        return np.asarray(self.training_hr3d[0 : n]), np.asarray(self.training_lf2d[0 : n])
 
     def hasNext(self):
         return True if self.epoch < self.n_epochs else False
@@ -159,8 +161,8 @@ class Dataset:
                 hr_pyramid.append(self.hr_s2[idx : end])
                 hr_pyramid.append(self.hr_s3[idx : end])
             else:
-                hr_pyramid = self.training_data_hr3d[idx:end]
+                hr_pyramid = self.training_hr3d[idx:end]
 
-            return hr_pyramid, self.training_data_lf2d[idx : end], idx - nt, self.epoch
+            return np.asarray(hr_pyramid), np.asarray(self.training_lf2d[idx : end]), idx - nt, self.epoch
                 
         raise Exception('epoch index out of bounds:%d/%d' %(self.epoch, self.n_epochs))
