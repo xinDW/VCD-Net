@@ -1287,7 +1287,7 @@ def load_npz(path='', name='model.npz', encoding='latin1'):
     - `Saving dictionary using numpy <http://stackoverflow.com/questions/22315595/saving-dictionary-of-header-information-using-numpy-savez>`__
 
     """
-    d = np.load(path + name, encoding=encoding)
+    d = np.load(path + name, encoding=encoding, allow_pickle=True)
     return d['params']
 
 

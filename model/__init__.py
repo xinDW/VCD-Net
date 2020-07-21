@@ -1,4 +1,4 @@
-from .unet import UNet_A, UNet_B
+from .unet import UNet_A
 # from .atrous_unet import AtrousUNet
 # from .rdn import RDN
 # from .split_atrous_unet import SplitAtrousUNet, MinimumUNet, MergeHead

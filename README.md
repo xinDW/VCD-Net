@@ -52,7 +52,7 @@ change the settings and the input path in `config.py`:
 # To infer the bead sample:
 config.PSF.n_slices          = 61
 config.PSF.Nnum              = 11
-label                        = 'bead_40x_[m30-30]_step1um_sparse' 
+label                        = 'bead_40x_[m30-30]_step1um' 
 config.VALID.lf2d_path       = 'example_data/valid/bead/'  
 
 ```
@@ -91,8 +91,10 @@ To train the VCD-Net on your own dataset, the following should be done:
     config.PSF.n_slices=<number of slices of the 3-D targets>                                                            
     config.PSF.Nnum     = <N number of the LF data>
     config.TRAIN.lf2d_path  = <Path-to-the-LFPs>     
-    config.TRAIN.target3d_path = <Path-to-the-3D-targets>   
+    config.TRAIN.target3d_path = <Path-to-the-3D-targets>  
+
 ```
+
 2. Name the label of this training in `config.py`, as a symbol of the trained model.
     label =  <'a-distinguishable-label'>   
 We recommand that the label includes the following information:
@@ -101,14 +103,12 @@ We recommand that the label includes the following information:
 * The N number of the LF data.
 * The physical z-range (um) of the 3-D reconstructions.
 * The z-step size (um) of the 3-D reconstructions.
-* The model type.
 
-There are two variants of the VCDNet, for the reconstructing of the sparse signals and the dense signals, respectively. The program will choose the appropriate one according to your label. 
 For example,
  ```
- label=zebrafish_20x_N11_[m50-50]_step2um_dense
+ label=zebrafish_20x_N11_[m50-50]_step2um
  ``` 
- indicates that a VCDNet for dense signals will be trained on a dataset of the 20x zebrafish images, of which the LFs have the N number 11, and the 3-D targets with 2-um step size are located at -50um ~ 50um.  
+ indicates that a VCDNet will be trained on a dataset of the 20x zebrafish images, of which the LFs have the N number 11, and the 3-D targets with 2-um step size are located at -50um ~ 50um.  
 
 The parameters of the trained model will be saved in the corresponding directory under the `repository_root/checkpoint/`. At the inference stage, the program will load the trained model parameters according to the designated label.
 

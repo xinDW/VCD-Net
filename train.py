@@ -5,11 +5,13 @@ import tensorlayer as tl
 import numpy as np
 import matplotlib.pyplot as plt
 
-from model import UNet_A, UNet_B, AtrousUNet, RDN
+# from model import UNet_A, UNet_B, AtrousUNet, RDN
+from model import UNet_A
 from model.util.losses import *
 from dataset import Dataset
 from utils import write3d
 from config import config
+#from train_multi_gpu import MutilDeviceTrainer
 
 ###====================== HYPER-PARAMETERS ===========================###
 img_size   = config.img_size * np.array(config.size_factor) # a numpy array, not a python list, cannot be concated with other list [] by "+"
@@ -20,7 +22,7 @@ base_size  = img_size // n_num # lateral size of lf_extra
 batch_size = config.TRAIN.batch_size
 lr_init    = config.TRAIN.lr_init
 beta1      = config.TRAIN.beta1
-
+#n_devices  = config.TRAIN.device_nums
 ## learning
 n_epoch     = config.TRAIN.n_epoch
 lr_decay    = config.TRAIN.lr_decay
@@ -63,10 +65,7 @@ class Trainer:
         vars_tag = 'vcdnet'
 
         with tf.device('/gpu:{}'.format(config.TRAIN.device)):
-            if 'old' in label or 'dense' in label:
-                self.net, _ = UNet_B(self.plchdr_lf, out_size=img_size, n_slices=n_slices, is_train=True, reuse=False, name=vars_tag)
-            else: 
-                self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
+            self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
            
             
 
@@ -174,8 +173,8 @@ class Trainer:
 
     def _get_test_data(self):
         self.test_target3d, self.test_lf_extra = self.dataset.for_test()
-        write3d(self.test_target3d[0 : batch_size], test_saving_dir+'/target3d.tif') 
-        write3d(self.test_lf_extra[0 : batch_size], test_saving_dir+'/lf_extra.tif') 
+        write3d(self.test_target3d[0 : batch_size], test_saving_dir+'/target3d.tif',bitdepth=8) 
+        write3d(self.test_lf_extra[0 : batch_size], test_saving_dir+'/lf_extra.tif',bitdepth=8) 
 
     def _save_intermediate_ckpt(self, tag, sess):
     
@@ -187,7 +186,7 @@ class Trainer:
         if 'epoch' in tag:
             test_lr_batch = self.test_lf_extra[0 : batch_size]
             out = self.sess.run(self.net.outputs, {self.plchdr_lf : test_lr_batch})
-            write3d(out, test_saving_dir+'test_{}.tif'.format(tag))
+            write3d(out, test_saving_dir+'test_{}.tif'.format(tag),bitdepth=8)
 
     def _record_avg_test_loss(self, epoch, sess):
         if 'min_test_loss' not in dir(self):
@@ -245,7 +244,12 @@ class Trainer:
         print('\n\ninit ckpt found at epoch %d\n\n' % begin)        
         tl.files.load_and_assign_npz(sess=self.sess, name=checkpoint_dir+'/vcdnet_epoch{}.npz'.format(begin), network=self.net) 
         return begin
-    
+        
+    def transfor_learning(self,**kwargs):
+        try:
+            self._train(**kwargs)
+        finally:
+            self._plot_test_loss()
     '''
     def _build_vgg(self, input):
         if 'net_vgg' not in dir(self):
@@ -295,11 +299,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument('-c', '--ckpt', type=int, default=0, help='')
-    
     args = parser.parse_args()
-
+    
     training_dataset = Dataset(config.TRAIN.target3d_path, config.TRAIN.lf2d_path, n_slices, n_num, base_size, normalize_mode=normalize_mode)
+    
     trainer          = Trainer(training_dataset)
     trainer.build_graph()
-
     trainer.train(begin_epoch=args.ckpt)

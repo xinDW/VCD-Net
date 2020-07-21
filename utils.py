@@ -80,8 +80,8 @@ def get_lf_extra(filename, path, n_num, normalize_fn, padding=False, **kwargs):
 
 
 def normalize(x):  
-    # max_ = np.max(x) * 1.2
-    max_ = 255.
+    max_ = np.max(x) * 1.1
+    #max_ = 255.
     x = x / (max_ / 2.)
     x = x - 1
     return x
@@ -109,7 +109,7 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
     Extract different views from a single LF projection
     
     Params:
-        -lf2d - 2-D light field projection
+        -lf2d: numpy.array, 2-D light field projection in shape of [height, width, channels=1]
         -mode - 'toDepth' -- extract views to depth dimension (output format [depth=multi-slices, h, w, c=1])
                 'toChannel' -- extract views to channel dimension (output format [h, w, c=multi-slices])
         -padding -   True : keep extracted views the same size as lf2d by padding zeros between valid pixels
@@ -155,6 +155,9 @@ def lf_extract_fn(lf2d, n_num=11, mode='toChannel', padding=False):
                     lf_extra[:, : , d] = lf2d[i : h : n, j : w : n]
                     d += 1
                     
+            
+                        
+                        
         elif mode == 'toDepth':
             lf_extra = np.zeros([n*n, new_h, new_w, c]) # [depth, h, w, c]
             
@@ -189,9 +192,11 @@ def _write3d(x, path, bitdepth=8):
          x = x.astype(np.float32)
 
     else:
-        x = _clip(x, 2)
+        # x = _clip(x, 0.2)
         min_ = np.min(x)
-        x = (x - min_) / (max_ - min_)
+        x = (x - min_) / (max_ - min_ + 1e-6)
+        x[:,:16,:16,:],x[:,-16:,-16:,:]=0,0
+        x[:,-16:,:16,:],x[:,:16,-16:,:]=0,0
 
         if bitdepth == 8:
             x = x * 255

@@ -6,7 +6,7 @@ import time
 
 from config import config
 
-from model import UNet_A, UNet_B
+from model import UNet_A
 from utils import *
 
 
@@ -63,10 +63,7 @@ def infer(epoch, batch_size=1, use_cpu=False):
 
     device_str = '/gpu:0' if not use_cpu else '/cpu:0'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
     with tf.device(device_str): 
-        if 'dense' in label or 'old_net'  in label:
-            net, _ = UNet_B(t_image, n_slices=n_slices, output_size=[height * n_num, width * n_num], is_train=True, reuse=False, name='unet_b')
-        else:
-            net = UNet_A(t_image, n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet')
+        net = UNet_A(t_image, n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet')
 
     ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(epoch) in filename) ] 
     len(ckpt_file) > 0 or __raise('no such checkpoint file')
@@ -101,7 +98,7 @@ def infer(epoch, batch_size=1, use_cpu=False):
         print('saving results ... ')
         io_start_time = time.time()
         for idx, im in enumerate(im_buffer):
-            write3d(im, save_dir+'vcd-%s' % (names[idx]), bitdepth=32)
+            write3d(im, save_dir+'vcd-%s' % (names[idx]), bitdepth=8)
         print("IO time elapsed (imwrite): %4.4fs " % (time.time() - io_start_time))
 
     

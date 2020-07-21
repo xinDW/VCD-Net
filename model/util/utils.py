@@ -4,6 +4,10 @@ import tensorlayer as tl
 # from tensorlayer.layers import InputLayer, Conv2d, Conv3dLayer, UpSampling2dLayer, SubpixelConv2d, ElementwiseLayer, BatchNormLayer, ConcatLayer
 from tensorlayer.layers import *
 from .custom import *
+from tensorlayer.layers import Layer
+
+
+
 
 #w_init = tf.random_normal_initializer(stddev=0.02)
 w_init = tf.glorot_uniform_initializer
@@ -65,8 +69,33 @@ def concat(layers, name):
 def batch_norm(layer, act=tf.identity, is_train=True, gamma_init=g_init, name='bn'): 
     return tl.layers.BatchNormLayer(layer, act=act, is_train=is_train, gamma_init=gamma_init, name=name)
     
-                               
+class PadDepth(Layer):
+    
+    def __init__(self, layer=None, name='padding',desired_channels=0):
+        Layer.__init__(self, name=name)
+        self.inputs = layer.outputs
+        self.desired_channels=desired_channels
+        
+        with tf.variable_scope(name):
+            self.outputs = self.pad_depth(self.inputs,self.desired_channels)
+        self.all_layers = list(layer.all_layers)
+        self.all_params = list(layer.all_params)
+        self.all_drop = dict(layer.all_drop)
+        self.all_layers.extend( [self.outputs] )
+        
+    def pad_depth(self, x , desired_channels):
+        y = tf.zeros_like(x)
+        print(y.shape)
+        new_channels = desired_channels - x.shape.as_list()[-1]
+        y = y[...,:new_channels]
+        
+        #y=tf.to_int32(y, name='ToInt32')
+        #x=tf.to_int32(x, name='ToInt32')
+        print(x.shape,y.shape)
+        return tf.concat([x,y],axis=-1)                              
 
+
+ 
 def UpConv(layer, out_channels, filter_size=4, factor=2, name='upconv'):
     with tf.variable_scope(name):
         n = tl.layers.UpSampling2dLayer(layer, size=(factor, factor), is_scale=True, method=1, name = 'upsampling')

@@ -2,9 +2,12 @@
 .vscode/
 checkpoint/
 data/
+example_data/
 log/
 sample/
 samples/
 layers.py
 main.py
 train_lapsrn.py
+example_data.rar
+*test*/
