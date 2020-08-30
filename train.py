@@ -224,8 +224,9 @@ class Trainer:
         loss = np.asarray(self.test_loss_plt)
         plt.figure()
         plt.plot(loss[:, 0], loss[:, 1])
-        plt.show()
+        
         plt.savefig(test_saving_dir + 'test_loss.png', bbox_inches='tight')
+        plt.show()
 
     def train(self, **kwargs):
         try:
