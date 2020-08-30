@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # from model import UNet_A, UNet_B, AtrousUNet, RDN
-from model import UNet_A
+from model import UNet_A, UNet_B
 from model.util.losses import *
 from dataset import Dataset
 from utils import write3d
@@ -65,7 +65,7 @@ class Trainer:
         vars_tag = 'vcdnet'
 
         with tf.device('/gpu:{}'.format(config.TRAIN.device)):
-            self.net = UNet_A(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
+            self.net = UNet_B(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
            
             
 

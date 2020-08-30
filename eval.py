@@ -6,7 +6,7 @@ import time
 
 from config import config
 
-from model import UNet_A
+from model import UNet_A, Unet_B
 from utils import *
 
 
@@ -63,7 +63,7 @@ def infer(epoch, batch_size=1, use_cpu=False):
 
     device_str = '/gpu:0' if not use_cpu else '/cpu:0'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
     with tf.device(device_str): 
-        net = UNet_A(t_image, n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet')
+        net = UNet_B(t_image, n_slices, [height * n_num, width * n_num], is_train=True, reuse=False, name='unet')
 
     ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(epoch) in filename) ] 
     len(ckpt_file) > 0 or __raise('no such checkpoint file')
