@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # from model import UNet_A, UNet_B, AtrousUNet, RDN
-from model import UNet_A, UNet_B
+from model import *
 from model.util.losses import *
 from dataset import Dataset
 from utils import write3d
@@ -34,8 +34,9 @@ checkpoint_dir       = config.TRAIN.ckpt_dir
 ckpt_saving_interval = config.TRAIN.ckpt_saving_interval
 log_dir              = config.TRAIN.log_dir
 
-normalize_mode  = 'max'
-using_edge_loss = config.TRAIN.using_edge_loss
+normalize_mode    = 'max'
+using_edge_loss   = config.TRAIN.using_edge_loss
+using_binary_loss = config.TRAIN.using_binary_loss
 # using_vgg_loss  = config.TRAIN.using_vgg_loss
 
 def __raise(e):
@@ -59,6 +60,7 @@ class Trainer:
             self.learning_rate = tf.Variable(lr_init, trainable=False)
 
         self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
+        # self.plchdr_lf = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], 1], name='t_lf_input')
         self.plchdr_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
         #self.plchdr_target3d = tf.placeholder('float32', [batch_size, base_size[0] * 8, base_size[1]* 8, n_slices], name='t_target3d')
 
@@ -75,15 +77,34 @@ class Trainer:
         #====================
         #loss function
         #=====================
-        loss_ln    = tf.reduce_mean(tf.squared_difference(self.plchdr_target3d, self.net.outputs))
+        loss_ln    = l2_loss(self.plchdr_target3d, self.net.outputs)
         self.loss  = loss_ln
+        self.loss_test = loss_ln
         self.losses.update({'ln_loss': loss_ln})
 
         if using_edge_loss:
-            loss_edges = 1e-1 * edges_loss(self.net.outputs, self.plchdr_target3d)
+            loss_edges = 1e-1 * (self.net.outputs, self.plchdr_target3d)
             self.loss += loss_edges
             self.losses.update({'edge_loss': loss_edges})
-        
+            
+
+        if using_binary_loss:
+            self.plchdr_mask3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_mask3d')
+            target = self.plchdr_target3d
+            vcd_out = self.net.outputs
+
+            target_fg = tf.math.multiply(target, self.plchdr_mask3d)
+            target_bg = tf.math.subtract(target, target_fg)
+            vcd_fg = tf.math.multiply(vcd_out, self.plchdr_mask3d)
+            vcd_bg = tf.math.subtract(vcd_out, vcd_fg)
+
+            fg_loss = 10 * l2_loss(target_fg, vcd_fg)
+            bg_loss = l2_loss(target_bg, vcd_bg)
+            self.loss = fg_loss + bg_loss
+            self.loss_test = fg_loss + bg_loss
+            self.losses.update({'fg_loss': fg_loss})
+            self.losses.update({'bg_loss': bg_loss})
+
         # if using_vgg_loss:
         #     vgg_loss       = self._get_vgg_loss(self.net.outputs, self.plchdr_target3d)
         #     self.losses.update({'vgg_loss' : vgg_loss})
@@ -95,17 +116,9 @@ class Trainer:
         configProto.gpu_options.allow_growth = True
         
         self.sess = tf.Session(config=configProto)
-
-        tf.summary.scalar('ln_loss', loss_ln)
+        self._make_summaries()
+        self.optim = tf.train.AdamOptimizer(self.learning_rate, beta1=beta1).minimize(self.loss, var_list=g_vars)
         
-        self.loss_test      = loss_ln
-        
-        self.optim          = tf.train.AdamOptimizer(self.learning_rate, beta1=beta1).minimize(self.loss, var_list=g_vars)
-
-        
-
-        self.merge_op       = tf.summary.merge_all()
-        self.summary_writer = tf.summary.FileWriter(log_dir, self.sess.graph)
 
     def _train(self, begin_epoch):
         """Train the VCD-Net
@@ -135,29 +148,54 @@ class Trainer:
         # if using_vgg_loss:
         #     self._load_vgg_model(sess=self.sess)    
 
-        ###====================== LOAD DATA ===========================###
+        ### load data
+        dataset_size     = self.dataset.prepare(batch_size)
         
-        dataset_size     = self.dataset.prepare(batch_size, n_epoch)
-        final_cursor     = (dataset_size // batch_size - 1) * batch_size
-        self._get_test_data()
+        self._write_test_samples()
         
 
         fetches = self.losses
         fetches['optim'] = self.optim
         fetches['batch_summary'] = self.merge_op
 
+        for epoch in range(begin_epoch, n_epoch):
+            self._update_learning_rate(epoch, decay_every, lr_decay, lr_init)
+            
+            for HR_batch, LF_batch, cursor in self.dataset.data():
+                step_time = time.time()
+                if using_binary_loss:
+                    feed_dict = {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch[0], self.plchdr_mask3d : HR_batch[1]}
+                else:
+                    feed_dict = {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch[0]}
+                
+                evaluated = self.sess.run(fetches, feed_dict)
+                print("\rEpoch:[%d/%d] iter:[%d/%d] time: %4.3fs, " % (epoch, n_epoch, cursor, dataset_size, time.time() - step_time), end="")
+                
+                losses_val = {name : value for name, value in evaluated.items() if 'loss' in name}
+                print(losses_val, end='')
+
+                self.summary_writer.add_summary(evaluated['batch_summary'], epoch * (dataset_size // batch_size) + cursor / batch_size)
+
+            self._record_avg_test_loss(epoch, self.sess)
+            if epoch != 0 and (epoch%ckpt_saving_interval == 0):
+                self._save_intermediate_ckpt(epoch, self.sess)
+
+        '''
+        final_cursor     = (dataset_size // batch_size - 1) * batch_size
         while self.dataset.hasNext():
             step_time = time.time()
-            HR_batch, LF_batch, cursor, epoch = self.dataset.iter()
+
+            if not using_binary_loss:
+                HR_batch, LF_batch, cursor, epoch = self.dataset.iter()
+                feed_dict = {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch}
+            else:
+                HR_batch, mask_batch, LF_batch, cursor, epoch = self.dataset.iter()
+                feed_dict = {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch, self.plchdr_mask3d : mask_batch}
 
             epoch += begin_epoch
-           
-            if epoch != 0 and (epoch % decay_every == 0) and cursor == 0:
-                new_lr_decay = lr_decay ** (epoch // decay_every)
-                self.sess.run(tf.assign(self.learning_rate, lr_init * new_lr_decay))
-                print('\nlearning rate updated : %f\n' % (lr_init * new_lr_decay))
+            self._update_learning_rate(epoch, decay_every, lr_decay, lr_init)
 
-            evaluated = self.sess.run(fetches, {self.plchdr_lf : LF_batch, self.plchdr_target3d : HR_batch})
+            evaluated = self.sess.run(fetches, feed_dict)
 
             if cursor == final_cursor:
                 self._record_avg_test_loss(epoch, self.sess)
@@ -170,11 +208,28 @@ class Trainer:
             print(losses_val, end='')
 
             self.summary_writer.add_summary(evaluated['batch_summary'], epoch * (dataset_size // batch_size - 1) + cursor / batch_size)
+        '''
 
-    def _get_test_data(self):
-        self.test_target3d, self.test_lf_extra = self.dataset.for_test()
-        write3d(self.test_target3d[0 : batch_size], test_saving_dir+'/target3d.tif',bitdepth=8) 
-        write3d(self.test_lf_extra[0 : batch_size], test_saving_dir+'/lf_extra.tif',bitdepth=8) 
+    def _update_learning_rate(self, epoch, decay_every, lr_decay, lr_init):
+        if epoch != 0 and (epoch % decay_every == 0):
+            new_lr_decay = lr_decay ** (epoch // decay_every)
+            self.sess.run(tf.assign(self.learning_rate, lr_init * new_lr_decay))
+            print('\nlearning rate updated : %f\n' % (lr_init * new_lr_decay))
+
+    def _make_summaries(self):
+        for key, val in self.losses.items():
+            tf.summary.scalar(key, val)
+
+        self.merge_op       = tf.summary.merge_all()
+        self.summary_writer = tf.summary.FileWriter(log_dir, self.sess.graph)
+
+    def _write_test_samples(self):
+        for hr_batch, lf_batch, _ in self.dataset.for_test():
+            write3d(hr_batch[0], test_saving_dir+'/target3d.tif',bitdepth=8) 
+            write3d(lf_batch, test_saving_dir+'/lf_extra.tif',bitdepth=8) 
+            if using_binary_loss:
+                write3d(hr_batch[1], test_saving_dir+'/mask3d.tif',bitdepth=8) 
+            break
 
     def _save_intermediate_ckpt(self, tag, sess):
     
@@ -183,42 +238,42 @@ class Trainer:
         npz_file_name = checkpoint_dir+'/vcdnet_{}.npz'.format(tag)
         tl.files.save_npz(self.net.all_params, name=npz_file_name, sess=sess)
 
-        if 'epoch' in tag:
-            test_lr_batch = self.test_lf_extra[0 : batch_size]
-            out = self.sess.run(self.net.outputs, {self.plchdr_lf : test_lr_batch})
-            write3d(out, test_saving_dir+'test_{}.tif'.format(tag),bitdepth=8)
+        for _, lf_batch, _ in self.dataset.for_test():
+            out = self.sess.run(self.net.outputs, {self.plchdr_lf : lf_batch})
+            write3d(out, test_saving_dir+'test_{}.tif'.format(tag), bitdepth=8)
+            break
+
 
     def _record_avg_test_loss(self, epoch, sess):
-        if 'min_test_loss' not in dir(self):
-            self.min_test_loss = 1e10
-            self.best_epoch    = 0
-            self.test_loss_plt = []
 
+        print()
         test_loss = 0
-        test_data_num = len(self.test_lf_extra)
-        print("")
-        for idx in range(0, test_data_num, batch_size):
-            if idx + batch_size <= test_data_num:
-                test_lr_batch = self.test_lf_extra[idx : idx + batch_size]
-                test_hr_batch = self.test_target3d[idx : idx + batch_size]
-                
-                
-                feed_test = {self.plchdr_lf : test_lr_batch, self.plchdr_target3d : test_hr_batch}
-                test_loss_batch = sess.run(self.loss_test, feed_test)
+        n_batchs = 0
+        for hr_batch, lr_batch, idx in self.dataset.for_test():
+            feed_test = {self.plchdr_lf : lr_batch, self.plchdr_target3d : hr_batch[0]}
+            if using_binary_loss:
+                feed_test.update({self.plchdr_mask3d : hr_batch[1]})
 
-                test_loss += test_loss_batch
-                print('\rvalidation [% 2d/% 2d] loss = %.6f   ' % (idx, test_data_num, test_loss_batch), end='')
+            test_loss_batch = sess.run(self.loss_test, feed_test)
+            test_loss += test_loss_batch
+            n_batchs += 1
 
+        test_loss /= n_batchs     
 
-        test_loss /= (len(self.test_lf_extra) // batch_size)       
-        print('avg = %.6f best = %.6f (@epoch%d)' % (test_loss, self.min_test_loss, self.best_epoch))
-        self.test_loss_plt.append([epoch, test_loss])
+        if 'min_test_loss' not in dir(self):
+            self.min_test_loss = test_loss
+            self.best_epoch    = epoch
+            self.test_loss_plt = []
 
         if (test_loss < self.min_test_loss):
             self.min_test_loss = test_loss
             self.best_epoch    = epoch
             self._save_intermediate_ckpt(tag='best', sess=sess)
             # self._save_pb(sess)
+
+        print('[validation] loss = %.6f best = %.6f (@epoch%d)' % (test_loss, self.min_test_loss, self.best_epoch))
+        self.test_loss_plt.append([epoch, test_loss])
+
 
     def _plot_test_loss(self):
         loss = np.asarray(self.test_loss_plt)
@@ -302,8 +357,14 @@ if __name__ == '__main__':
     parser.add_argument('-c', '--ckpt', type=int, default=0, help='')
     args = parser.parse_args()
     
-    training_dataset = Dataset(config.TRAIN.target3d_path, config.TRAIN.lf2d_path, n_slices, n_num, base_size, normalize_mode=normalize_mode)
+    training_dataset = Dataset(config.TRAIN.target3d_path, 
+                            config.TRAIN.lf2d_path, 
+                            n_slices, 
+                            n_num, 
+                            base_size, 
+                            normalize_mode=normalize_mode,
+                            bianry_mask=using_binary_loss)
     
-    trainer          = Trainer(training_dataset)
+    trainer = Trainer(training_dataset)
     trainer.build_graph()
     trainer.train(begin_epoch=args.ckpt)
