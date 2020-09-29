@@ -5,11 +5,11 @@ import tensorlayer as tl
 import numpy as np
 import matplotlib.pyplot as plt
 
-# from model import UNet_A, UNet_B, AtrousUNet, RDN
 from model import *
+from model.util.tf_pb import save_graph_as_pb
 from model.util.losses import *
 from dataset import Dataset
-from utils import write3d
+from utils import write3d, save_activations
 from config import config
 #from train_multi_gpu import MutilDeviceTrainer
 
@@ -38,6 +38,7 @@ normalize_mode    = 'max'
 using_edge_loss   = config.TRAIN.using_edge_loss
 using_binary_loss = config.TRAIN.using_binary_loss
 # using_vgg_loss  = config.TRAIN.using_vgg_loss
+using_batch_norm  = config.TRAIN.using_batch_norm
 
 def __raise(e):
     raise(e)
@@ -59,7 +60,7 @@ class Trainer:
         with tf.variable_scope('learning_rate'):
             self.learning_rate = tf.Variable(lr_init, trainable=False)
 
-        self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_extra_input')
+        self.plchdr_lf = tf.placeholder('float32', [batch_size, base_size[0], base_size[1], n_num ** 2], name='t_lf_input')
         # self.plchdr_lf = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], 1], name='t_lf_input')
         self.plchdr_target3d = tf.placeholder('float32', [batch_size, img_size[0], img_size[1], n_slices], name='t_target3d')
         #self.plchdr_target3d = tf.placeholder('float32', [batch_size, base_size[0] * 8, base_size[1]* 8, n_slices], name='t_target3d')
@@ -67,9 +68,11 @@ class Trainer:
         vars_tag = 'vcdnet'
 
         with tf.device('/gpu:{}'.format(config.TRAIN.device)):
-            self.net = UNet_B(self.plchdr_lf, n_slices=n_slices, output_size=img_size, is_train=True, reuse=False, name=vars_tag)
-           
-            
+            self.net = UNet_B(self.plchdr_lf, 
+                                n_slices=n_slices, 
+                                output_size=img_size, 
+                                reuse=False, 
+                                name=vars_tag)
 
         self.net.print_params(False)
         g_vars = tl.layers.get_variables_with_name(vars_tag, train_only=True, printable=True)
@@ -119,12 +122,14 @@ class Trainer:
         self._make_summaries()
         self.optim = tf.train.AdamOptimizer(self.learning_rate, beta1=beta1).minimize(self.loss, var_list=g_vars)
         
+        output_node = tf.identity(self.net.outputs, name='vcd_output')
+        self.output_node_name = 'vcd_output'
 
     def _train(self, begin_epoch):
         """Train the VCD-Net
 
         Params
-            -begin_epoch: int, if not 0, a checkpoint file will be loaded and the training will continue from there
+            -begin_epoch: int, if not 0, pretrained checkpoint will be loaded and the training will continue from there
         """
         ## create folders to save result images and trained model
         save_dir = test_saving_dir
@@ -158,7 +163,7 @@ class Trainer:
         fetches['optim'] = self.optim
         fetches['batch_summary'] = self.merge_op
 
-        for epoch in range(begin_epoch, n_epoch):
+        for epoch in range(begin_epoch, n_epoch + 1):
             self._update_learning_rate(epoch, decay_every, lr_decay, lr_init)
             
             for HR_batch, LF_batch, cursor in self.dataset.data():
@@ -179,6 +184,7 @@ class Trainer:
             self._record_avg_test_loss(epoch, self.sess)
             if epoch != 0 and (epoch%ckpt_saving_interval == 0):
                 self._save_intermediate_ckpt(epoch, self.sess)
+                save_activations(save_dir=test_saving_dir, sess=self.sess, final_layer=self.net, feed_dict=feed_dict)
 
         '''
         final_cursor     = (dataset_size // batch_size - 1) * batch_size
@@ -282,12 +288,18 @@ class Trainer:
         
         plt.savefig(test_saving_dir + 'test_loss.png', bbox_inches='tight')
         plt.show()
+    
+    def _save_pb(self, sess):
+        pb_file = checkpoint_dir + '/best_model.pb'
+        save_graph_as_pb(sess=sess, output_node_names=self.output_node_name, output_graph_file=pb_file)
 
     def train(self, **kwargs):
         try:
             self._train(**kwargs)
         finally:
-            self._plot_test_loss()   
+            self._save_pb(sess=self.sess)
+            self._plot_test_loss()  
+            self.sess.close() 
         
 
 
@@ -362,6 +374,7 @@ if __name__ == '__main__':
                             n_slices, 
                             n_num, 
                             base_size, 
+                            shuffle=True,
                             normalize_mode=normalize_mode,
                             bianry_mask=using_binary_loss)
     
