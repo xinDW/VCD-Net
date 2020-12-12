@@ -17,6 +17,7 @@ from config import config
 img_size   = config.img_size * np.array(config.size_factor) # a numpy array, not a python list, cannot be concated with other list [] by "+"
 n_slices   = config.PSF.n_slices
 n_num      = config.PSF.Nnum
+n_base_filters = config.n_base_filters
 base_size  = img_size // n_num # lateral size of lf_extra
 
 batch_size = config.TRAIN.batch_size
@@ -34,7 +35,7 @@ checkpoint_dir       = config.TRAIN.ckpt_dir
 ckpt_saving_interval = config.TRAIN.ckpt_saving_interval
 log_dir              = config.TRAIN.log_dir
 
-normalize_mode    = 'max'
+normalize_mode    =config.normalize_mode
 using_edge_loss   = config.TRAIN.using_edge_loss
 using_binary_loss = config.TRAIN.using_binary_loss
 # using_vgg_loss  = config.TRAIN.using_vgg_loss
@@ -70,6 +71,7 @@ class Trainer:
         with tf.device('/gpu:{}'.format(config.TRAIN.device)):
             self.net = UNet_B(self.plchdr_lf, 
                                 n_slices=n_slices, 
+                                n_base_filters=n_base_filters,
                                 output_size=img_size, 
                                 reuse=False, 
                                 name=vars_tag)
@@ -184,7 +186,7 @@ class Trainer:
             self._record_avg_test_loss(epoch, self.sess)
             if epoch != 0 and (epoch%ckpt_saving_interval == 0):
                 self._save_intermediate_ckpt(epoch, self.sess)
-                save_activations(save_dir=test_saving_dir, sess=self.sess, final_layer=self.net, feed_dict=feed_dict)
+                # save_activations(save_dir=test_saving_dir, sess=self.sess, final_layer=self.net, feed_dict=feed_dict)
 
         '''
         final_cursor     = (dataset_size // batch_size - 1) * batch_size
