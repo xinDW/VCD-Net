@@ -1,6 +1,7 @@
+import tensorflow as tf
 from .util.utils import *
 import tensorlayer as tl
-import tensorflow as tf
+from tensorlayer.layers import InputLayer, SubpixelConv2d, ConcatLayer
 
 __all__ = ['UNet_A',
         'UNet_B',
@@ -132,7 +133,7 @@ def UNet_A(lf_extra, n_slices, output_size, is_train=True, reuse=False, name='un
 
 def UNet_B(lf_extra, n_slices, output_size, 
             n_pyramid_levels=4,
-            n_base_filters=64,
+            n_base_filters=128,
             using_batch_norm=False,
             is_train=False,
             last_act=tf.nn.relu,
@@ -160,13 +161,12 @@ def UNet_B(lf_extra, n_slices, output_size,
     '''    
     n_interp = 4
     channels_interp = 128
-    act = tf.nn.relu
-
+    act = tf.nn.leaky_relu
      
     with tf.variable_scope(name, reuse=reuse):
         n = InputLayer(lf_extra, 'lf_extra')
-        # n = conv2d(n, n_filter=channels_interp, filter_size=5, name='conv1')
-        n = conv(n, n_filter=channels_interp, filter_size=5, act=act, using_batch_norm=using_batch_norm, is_train=is_train, name='conv1')
+        n = conv2d(n, n_filter=channels_interp, filter_size=5, name='conv1')
+        # n = conv(n, n_filter=channels_interp, filter_size=5, act=act, using_batch_norm=using_batch_norm, is_train=is_train, name='conv1')
 
         ## Up-scale input
         with tf.variable_scope('interp'): 
@@ -177,23 +177,22 @@ def UNet_B(lf_extra, n_slices, output_size,
         pyramid_channels = [n_base_filters * i for i in range(1, n_pyramid_levels + 1)] # output channels number of each conv layer in the encoder
         encoder_layers = []
         with tf.variable_scope('encoder'):
-            # n = conv2d(n, n_filter=64, filter_size=3, stride=2, name='conv0')
-            n = conv(n, n_filter=64, filter_size=3, stride=2, act=act, using_batch_norm=using_batch_norm, is_train=is_train, name='conv0')
+            n = conv2d(n, n_filter=64, filter_size=3, stride=2, name='conv0')
 
             for idx, nc in enumerate(pyramid_channels):
-                encoder_layers.append(n) # append n0, n1, n2, n3, n4 (but without n5)to the layers list
+                
+                encoder_layers.append(n) # append n0, n1, n2, n3 (but without n4)to the layers list
                 print('encoder %d : %s' % (idx, str(n.outputs.get_shape())))
                 n = LReluLayer(n, name='relu%d' % (idx + 1))
-                # n = conv2d(n, n_filter=nc, filter_size=3, name='conv%d' % (idx + 1)) 
-                n = conv(n, n_filter=nc, filter_size=3, act=act, using_batch_norm=using_batch_norm, is_train=is_train, name='conv%d' % (idx + 1)) 
-                n = max_pool2d(n, filter_size=2, stride=2)
+                n = conv2d(n, n_filter=nc, filter_size=3, stride=2, name='conv%d' % (idx + 1)) 
+                # n = max_pool2d(n, filter_size=2, stride=2)
 
         nl = len(encoder_layers)        
         with tf.variable_scope('decoder'):
             _, h, w, _ = encoder_layers[-1].outputs.shape.as_list()
             n = ReluLayer(n, name='relu1')
             n = upscale(n, out_channels=pyramid_channels[-1], out_size=(h, w), mode='upconv', name='upsale1')
-            
+
             for idx in range(nl - 1, -1, -1): # idx = 4,3,2,1,0
                 if idx > 0:
                     _, h, w, _ = encoder_layers[idx - 1].outputs.shape.as_list()
@@ -213,8 +212,8 @@ def UNet_B(lf_extra, n_slices, output_size,
             n = conv2d(n, n_filter=n_slices, filter_size=3, act=last_act, name='out')  
             return n
 
-@deprecated
-def UNet_C(lf_extra, n_slices, output_size, is_train=True, reuse=False, name='unet'):
+#deprecated
+def UNet_C(lf_extra, n_slices, output_size, use_bn=True, is_train=True, reuse=False, name='unet'):
     '''U-net based VCD-Net for sparse light field reconstruction.
     Params:
         lf_extra: tf.tensor 
@@ -251,7 +250,7 @@ def UNet_C(lf_extra, n_slices, output_size, is_train=True, reuse=False, name='un
                 n = conv2d(n, n_filter=channels_interp, filter_size=3, name='conv%d' % i)
                 
             n = conv2d(n, n_filter=channels_interp, filter_size=3, act=act, name='conv_final') # 176*176
-            n = batch_norm(n, is_train=is_train, name='bn_final')
+            if use_bn: n = batch_norm(n, is_train=is_train, name='bn_final')
         
         pyramid_channels = [128, 256, 512, 512, 512] # output channels number of each conv layer in the encoder
         encoder_layers = []
@@ -263,14 +262,14 @@ def UNet_C(lf_extra, n_slices, output_size, is_train=True, reuse=False, name='un
                 print('encoder %d : %s' % (idx, str(n.outputs.get_shape())))
                 n = LReluLayer(n, name='lreu%d' % (idx + 1))
                 n = conv2d(n, n_filter=nc, filter_size=3, stride=2, name='conv%d' % (idx + 1)) 
-                n = batch_norm(n, is_train=is_train, name='bn%d' % (idx + 1))
+                if use_bn: n = batch_norm(n, is_train=is_train, name='bn%d' % (idx + 1))
 
         nl = len(encoder_layers)        
         with tf.variable_scope('decoder'):
             _, h, w, _ = encoder_layers[-1].outputs.shape.as_list()
             n = ReluLayer(n, name='relu1')
             n = deconv2d(n, pyramid_channels[-1], out_size=(h, w), padding='SAME', name='deconv1')
-            n = batch_norm(n, is_train=is_train, name='bn1')
+            if use_bn: n = batch_norm(n, is_train=is_train, name='bn1')
             
             for idx in range(nl - 1, -1, -1): # idx = 4,3,2,1,0
                 if idx > 0:
@@ -286,14 +285,14 @@ def UNet_C(lf_extra, n_slices, output_size, is_train=True, reuse=False, name='un
                 n = ReluLayer(n, name='relu%d' % (nl - idx + 1))
                 #n = UpConv(n, 512, filter_size=4, factor=2, name='upconv2')
                 n = deconv2d(n, out_channels, out_size = out_size, padding='SAME', name='deconv%d' % (nl - idx + 1))
-                n = batch_norm(n, is_train=is_train, name='bn%d' % (nl - idx + 1))
+                if use_bn: n = batch_norm(n, is_train=is_train, name='bn%d' % (nl - idx + 1))
                 #n = DropoutLayer(n, keep=0.5, is_fix=True, is_train=is_train, name='dropout1')
 
             if n.outputs.shape[1] != output_size[0]:
                 n = UpSampling2dLayer(n, size=output_size, is_scale=False, name = 'resize_final')
            
-            n.outputs = tf.tanh(n.outputs)
-            #n = conv2d(n, n_filter=n_slices, filter_size=3, act=tf.tanh, name='out')  
+            if use_bn: n.outputs = tf.tanh(n.outputs)
+            # n = conv2d(n, n_filter=n_slices, filter_size=3, act=tf.tanh, name='out')  
             return n
     
 """
