@@ -7,7 +7,7 @@ import time
 from config import config
 
 from model import *
-from model.util.tf_pb import save_graph_as_pb
+# from model.util.tf_pb import save_graph_as_pb
 from utils import *
 
 
@@ -133,8 +133,6 @@ if __name__ == '__main__':
     # parser.add_argument("-r", "--recursive", help="recursively eval all images under config.VALID.lf2d_path and its sub-folders",
     #                     action="store_true") #if the option is specified, assign True to args.recursive. Not specifying it implies False.
 
-    # parser.add_argument("--mip", help="save mean/max-intensity-projection instead of 3-D stack",
-    #                     action="store_true") 
 
     parser.add_argument("--max", help="save max-intensity-projection instead of 3-D stack",
                         action="store_true") 
