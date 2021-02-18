@@ -14,12 +14,13 @@ _Note_: Please delete any other .jar files named 'ij-1.xxx.jar' under `your-imag
 
 <img src="images/open.png" width="400px" />
 
+<img src="images/input_panel.png" width="400px" />
 
 2. Open your light-field images as an ImageJ stack and select it by clicking the popup list. If your image were not found, press the "Refresh" button.
 3. Choose the proper N number and normalization method.
 4. Click "Next" button.
 
-<img src="images/input_panel.png" width="400px" />
+<img src="images/model_panel.png" width="400px" />
 
 5. Select your model file on the disk by clicking "Browse" button. An example `.pb` file is provided together with the plugin. To use your own model, run:
     ```
@@ -27,7 +28,7 @@ _Note_: Please delete any other .jar files named 'ij-1.xxx.jar' under `your-imag
     ```
 after training your own model with our python VCD-Net program.
 
-<img src="images/model_panel.png" width="400px" />
+
 
 6. Click "Run" button to start the inference. While done, a 4-D HyperStack will show.
 
