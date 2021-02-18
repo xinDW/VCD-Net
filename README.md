@@ -1,6 +1,6 @@
 # VCDNet
 
-Tensorflow implementation of VCD-Net for high-efficiency light field reconstruction. 
+Tensorflow implementation of VCD-Net for high-efficiency light field reconstruction. Publication: [Real-time volumetric reconstruction of biological dynamics with light-field microscopy and deep learning](https://www.nature.com/articles/s41592-021-01058-x#citeas) on Nature Methods.
 
 ## Requirements
 
