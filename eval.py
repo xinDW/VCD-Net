@@ -7,7 +7,7 @@ import time
 from config import config
 
 from model import *
-# from model.util.tf_pb import save_graph_as_pb
+from model.util.tf_pb import save_graph_as_pb
 from utils import *
 
 
@@ -42,7 +42,7 @@ def read_valid_images(path):
     return img_set, img_list, height, width
 
 
-def infer(epoch, batch_size=1, use_cpu=False, save_mean=False, save_max=False):
+def infer(epoch, batch_size=1, use_cpu=False, save_mean=False, save_max=False, save_pb=False):
     """ Infer the 3-D images from the 2-D LF images using the trained VCD-Net
 
     Params:
@@ -60,13 +60,16 @@ def infer(epoch, batch_size=1, use_cpu=False, save_mean=False, save_max=False):
     tl.files.exists_or_mkdir(save_dir)
     
     valid_lf_extras, names, height, width = read_valid_images(lf_2d_path)
+    if save_pb:
+        height, width = [96, 96]
+        
     t_image = tf.placeholder('float32', [batch_size, height , width, n_num ** 2])
     # t_image = tf.placeholder('float32', [batch_size, height , width, 1])
 
     device_str = '/gpu:0' if not use_cpu else '/cpu:0'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
     with tf.device(device_str): 
         net = UNet_B(t_image, n_slices, [height * n_num, width * n_num], n_base_filters=n_filters, reuse=False, name='unet')
-        # net = UNet_C(t_image, n_slices, [height * n_num, width * n_num], use_bn=False, is_train=False, reuse=False, name='unet')
+        # net = UNet_A(t_image, n_slices, [height * n_num, width * n_num], is_train=False, name='unet')
 
     ckpt_file = [filename for filename in os.listdir(checkpoint_dir) if ('.npz' in filename and str(epoch) in filename) ] 
     len(ckpt_file) > 0 or __raise('no such checkpoint file')
@@ -83,9 +86,11 @@ def infer(epoch, batch_size=1, use_cpu=False, save_mean=False, save_max=False):
         print('loading %s' % ckpt_file)
         tl.files.load_and_assign_npz(sess=sess, name=ckpt_file, network=net)
         
-        # save_graph_as_pb(sess=sess, 
-        #                     output_node_names=output_node_name, 
-        #                     output_graph_file=os.path.join(checkpoint_dir, 'vcd_best.pb'))
+        if save_pb:
+            save_graph_as_pb(sess=sess, 
+                                output_node_names=output_node_name, 
+                                output_graph_file=os.path.join(checkpoint_dir, 'vcd_%s_%s.pb' % (label, device_str.replace('/', '').replace(':', ''))))
+            return
 
         #im_buffer        = np.zeros([len(valid_lf_extras), height * n_num, width * n_num, config.PSF.n_slices])
         im_buffer        = []
@@ -143,9 +148,12 @@ if __name__ == '__main__':
     parser.add_argument("--cpu", help="use CPU instead of GPU for inference",
                         action="store_true") 
     
+    parser.add_argument("--save_pb", help="save the well-trained model parameters as a pb file",
+                        action="store_true") 
+
     args = parser.parse_args()
     
-    infer(args.ckpt, batch_size=args.batch, use_cpu=args.cpu, save_max=args.max, save_mean=args.mean)
+    infer(args.ckpt, batch_size=args.batch, use_cpu=args.cpu, save_max=args.max, save_mean=args.mean, save_pb=args.save_pb)
     
 
 
