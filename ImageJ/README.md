@@ -1,5 +1,5 @@
 # ImageJ Plugins for VCD-Net.
-An ImageJ plugin that implements the inference stage of VCD-Net. This plugin takes a single or a series (i.e., an ImageJ image stack) of light-field images as input, loads a tensorflow protobuffer file (.pb) that stores the pre-trained model parameters, and run the VCD reconstruction to generate a 3-D (for single image input) or 4-D (for image series input) stack.
+An ImageJ plugin that implements the inference stage of VCD-Net. This plugin takes a single or a series (i.e., an ImageJ image stack) of light-field images as input, loads a tensorflow protobuffer file (.pb) that stores the pre-trained model parameters, and run the VCD reconstruction to generate a 3-D (for single image input) or 4-D (for image series input) stack.Please cite our [Nature Methods article](https://www.nature.com/articles/s41592-021-01058-x) if you used this software in your research.
 
 ## Install
 * Download the `/ImageJ` folder and merge `/jars` and `/plugins` folders with ones in your ImageJ installing directory. 
